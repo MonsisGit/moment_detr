@@ -119,7 +119,7 @@ def slice_window(frame_features, meta, rng):
     meta = adjust_meta(meta,
                        f_left_offset,
                        f_window_length)
-    window = rng.choice(window, size=max_v_l, replace=False, axis=0, shuffle=False)
+    #window = rng.choice(window, size=max_v_l, replace=False, axis=0, shuffle=False)
     return window, meta
 
 
