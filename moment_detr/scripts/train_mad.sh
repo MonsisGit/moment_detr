@@ -16,9 +16,9 @@ v_feat_dim=768
 t_feat_dir=/nfs/data3/goldhofer/mad_dataset/
 t_feat_dim=512
 #### training
-bsz=32
-cuda_visible_devices=2
-eval_results_dir=L14_.5FPS
+bsz=2048
+#cuda_visible_devices=0
+eval_results_dir=L14_.5FPS_lw_saliency0_bs2048
 
 
 PYTHONPATH=$PYTHONPATH:. python moment_detr/train.py \
@@ -36,6 +36,8 @@ PYTHONPATH=$PYTHONPATH:. python moment_detr/train.py \
 --num_workers 16 \
 --n_epoch 200 \
 --exp_id ${exp_id} \
---cuda_visible_devices ${cuda_visible_devices} \
+#--cuda_visible_devices ${cuda_visible_devices} \
 --eval_results_dir ${eval_results_dir} \
+--lw_saliency 0 \
+--num_workers 8 \
 ${@:1}

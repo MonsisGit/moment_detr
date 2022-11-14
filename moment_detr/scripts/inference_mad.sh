@@ -1,4 +1,4 @@
-ckpt_path=run_on_video/moment_detr_ckpt/model_best.ckpt
+ckpt_path=results/moment_detr_ckpt/model_best.ckpt
 
 dset_name=hl
 ctx_mode=video_tef
@@ -14,7 +14,7 @@ eval_split_name=test
 
 ######## setup video+text features
 v_feat_dirs=(/nfs/data3/goldhofer/mad_dataset/clip_frame_features_transformed_dense/)
-v_feat_dim=512
+v_feat_dim=768
 t_feat_dir=/nfs/data3/goldhofer/mad_dataset/
 t_feat_dim=512
 bsz=256
