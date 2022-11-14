@@ -17,11 +17,11 @@ t_feat_dir=/nfs/data3/goldhofer/mad_dataset/
 t_feat_dim=512
 #### training
 bsz=128
-cuda_visible_devices=2
-eval_results_dir=L14_.5FPS
+cuda_visible_devices=1
+eval_results_dir=L14_5FPS
 lw_saliency=0
-data_ratio=0.01
-num_workers=8
+data_ratio=1
+num_workers=16
 n_epoch=200
 
 PYTHONPATH=$PYTHONPATH:. python moment_detr/train.py \

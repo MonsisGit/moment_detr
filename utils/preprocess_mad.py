@@ -169,7 +169,7 @@ def adjust_meta(meta, f_left_offset, f_window_length, fps):
 
 
 if __name__ == "__main__":
-    #run()
+    # run()
 
     from utils.basic_utils import load_jsonl
 
@@ -178,12 +178,13 @@ if __name__ == "__main__":
     annotation_paths = [f'{root}/annotations/MAD_val.json',
                         f'{root}/annotations/MAD_test.json', f'{root}/annotations/MAD_train.json']
     for annotation_path in annotation_paths:
-        save_path = root + "/" + annotation_path.split("/")[-1].split(".")[0] + "_transformed.json"
+        save_path = root + "/annotations/" + annotation_path.split("/")[-1].split(".")[0] + "_transformed.json"
         meta = load_jsonl(save_path)
 
         for m in tqdm(meta):
-            m["duration"]=150
+            if m["relevant_windows"][0][1] - m["relevant_windows"][0][0] >= 120:
+                print(m["relevant_windows"])
 
-        with open(root + "/annotations/" + annotation_path.split("/")[-1].split(".")[0] + "_transformed.json", "w") as f:
-            f.write("\n".join([json.dumps(e) for e in meta]))
-        print(f'saved to: {save_path}')
+        # with open(root + "/annotations/" + annotation_path.split("/")[-1].split(".")[0] + "_transformed.json", "w") as f:
+        #    f.write("\n".join([json.dumps(e) for e in meta]))
+        # print(f'saved to: {save_path}')

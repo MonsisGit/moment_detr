@@ -144,13 +144,29 @@ def eval_moment_retrieval(submission, ground_truth, verbose=True):
         if verbose:
             start_time = time.time()
         _submission, _ground_truth = get_data_by_range(submission, ground_truth, l_range)
-        print(f"{name}: {l_range}, {len(_ground_truth)}/{len(ground_truth)}="
-              f"{100*len(_ground_truth)/len(ground_truth):.2f} examples.")
-        iou_thd2average_precision = compute_mr_ap(_submission, _ground_truth, num_workers=8, chunksize=50)
-        iou_thd2recall_at_one = compute_mr_r1(_submission, _ground_truth)
-        ret_metrics[name] = {"MR-mAP": iou_thd2average_precision, "MR-R1": iou_thd2recall_at_one}
-        if verbose:
-            print(f"[eval_moment_retrieval] [{name}] {time.time() - start_time:.2f} seconds")
+        if len(_submission) != 0:
+            print(f"{name}: {l_range}, {len(_ground_truth)}/{len(ground_truth)}="
+                  f"{100 * len(_ground_truth) / len(ground_truth):.2f} examples.")
+            iou_thd2average_precision = compute_mr_ap(_submission, _ground_truth, num_workers=8, chunksize=50)
+            iou_thd2recall_at_one = compute_mr_r1(_submission, _ground_truth)
+            ret_metrics[name] = {"MR-mAP": iou_thd2average_precision, "MR-R1": iou_thd2recall_at_one}
+            if verbose:
+                print(f"[eval_moment_retrieval] [{name}] {time.time() - start_time:.2f} seconds")
+        else:
+            placeholder_scores = {"0.5": -1,
+                                  "0.55": -1,
+                                  "0.6": -1,
+                                  "0.65": -1,
+                                  "0.70": -1,
+                                  "0.75": -1,
+                                  "0.8": -1,
+                                  "0.85": -1,
+                                  "0.9": -1,
+                                  "0.95": -1,
+                                  }
+            placeholder_scores_w_average = placeholder_scores
+            placeholder_scores_w_average["average"] = -1
+            ret_metrics[name] = {"MR-mAP": placeholder_scores, "MR-R1": placeholder_scores_w_average}
     return ret_metrics
 
 
@@ -160,7 +176,7 @@ def compute_hl_hit1(qid2preds, qid2gt_scores_binary):
     qids = list(qid2preds.keys())
     for idx, qid in enumerate(qids):
         pred_clip_idx = qid2max_scored_clip_idx[qid]
-        gt_scores_binary = qid2gt_scores_binary[qid]   # (#clips, 3)
+        gt_scores_binary = qid2gt_scores_binary[qid]  # (#clips, 3)
         if pred_clip_idx < len(gt_scores_binary):
             hit_scores[idx] = gt_scores_binary[pred_clip_idx]
     # aggregate scores from 3 separate annotations (3 workers) by taking the max.
@@ -171,7 +187,7 @@ def compute_hl_hit1(qid2preds, qid2gt_scores_binary):
 
 def compute_hl_ap(qid2preds, qid2gt_scores_binary, num_workers=8, chunksize=50):
     qid2pred_scores = {k: v["pred_saliency_scores"] for k, v in qid2preds.items()}
-    ap_scores = np.zeros((len(qid2preds), 3))   # (#preds, 3)
+    ap_scores = np.zeros((len(qid2preds), 3))  # (#preds, 3)
     qids = list(qid2preds.keys())
     input_tuples = []
     for idx, qid in enumerate(qids):
