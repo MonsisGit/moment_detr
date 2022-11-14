@@ -128,7 +128,8 @@ def slice_window(frame_features, meta, rng, fps, max_v_l):
                        f_left_offset,
                        f_window_length,
                        fps)
-    # window = rng.choice(window, size=max_v_l, replace=False, axis=0, shuffle=False) #TODO: check random
+
+    #window = rng.choice(window, size=max_v_l, replace=False, axis=0, shuffle=False)
     return window, meta
 
 
