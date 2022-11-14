@@ -112,9 +112,10 @@ def train(model, criterion, optimizer, lr_scheduler, train_dataset, val_dataset,
         collate_fn=start_end_collate,
         batch_size=opt.bsz,
         num_workers=opt.num_workers,
-        shuffle=True,
+        shuffle=False,
         pin_memory=opt.pin_memory
     )
+    #TODO set shuffle to False!!!!
 
     prev_best_score = 0.
     es_cnt = 0

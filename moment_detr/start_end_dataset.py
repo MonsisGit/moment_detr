@@ -190,8 +190,9 @@ class StartEndDataset(Dataset):
             q_feat = np.load(q_feat_path)[self.q_feat_type].astype(np.float32)
         if self.q_feat_type == "last_hidden_state":
             q_feat = q_feat[:self.max_q_l]
-            print(
-                f'Query feature length ({q_feat.shape[0]}) is longer than set max query length ({self.max_q_l})"')
+            if self.max_q_l < q_feat.shape[0]:
+                print(
+                    f'Query feature length ({q_feat.shape[0]}) is longer than set max query length ({self.max_q_l})"')
         if self.normalize_t:
             q_feat = l2_normalize_np_array(q_feat)
         if self.txt_drop_ratio > 0:
@@ -223,7 +224,7 @@ class StartEndDataset(Dataset):
                 _feat = np.load(_feat_path)["features"][::int(5 / sampling_fps)].astype(np.float32)
             if self.normalize_v:
                 _feat = l2_normalize_np_array(_feat)
-            # v_feat_list.append(_feat)
+            v_feat_list.append(_feat)
         # some features are slightly longer than the others
         min_len = min([len(e) for e in v_feat_list])
         v_feat_list = [e[:min_len] for e in v_feat_list]
