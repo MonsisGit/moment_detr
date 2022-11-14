@@ -78,7 +78,6 @@ class StartEndDataset(Dataset):
 
     def __getitem__(self, index):
         meta = self.data[index]
-        meta.pop("duration")
 
         model_inputs = dict()
 

@@ -6,6 +6,7 @@ import h5py
 import pickle
 from pathlib import Path
 
+
 def run():
     root = '/nfs/data3/goldhofer/mad_dataset'
     clip_frame_features = get_video_feats(root)
@@ -37,12 +38,11 @@ def run():
                 highest_clip = int(annotated_data[k]["ext_timestamps"][1])
 
                 if lowest_clip % 2 != 0:
-                   lowest_clip -= 1
+                    lowest_clip -= 1
                 if highest_clip % 2 != 0:
                     highest_clip += 1
                 # lowest_clip2, highest_clip2 = math.floor(annotated_data[k]["ext_timestamps"][0] / 2.) * 2, \
                 #                             math.ceil(annotated_data[k]["ext_timestamps"][1] / 2.) * 2
-
 
                 if highest_clip > annotated_data[k]["movie_duration"]:
                     print(
@@ -53,10 +53,10 @@ def run():
 
                     meta = {"qid": k,
                             "query": annotated_data[k]["sentence"],
-                            "duration": annotated_data[k]["movie_duration"],
+                            "duration": video_length_seconds,
                             "vid": k,
                             "relevant_windows": [[lowest_clip, highest_clip]],
-                            #TODO: may not need these 2
+                            # TODO: may not need these 2
                             "relevant_clip_ids": [i for i in
                                                   range(int(lowest_clip / 2), int(highest_clip / 2))],
                             "saliency_scores": [[0, 0, 0] for _ in
@@ -129,7 +129,7 @@ def slice_window(frame_features, meta, rng, fps, max_v_l):
                        f_window_length,
                        fps)
 
-    #window = rng.choice(window, size=max_v_l, replace=False, axis=0, shuffle=False)
+    # window = rng.choice(window, size=max_v_l, replace=False, axis=0, shuffle=False)
     return window, meta
 
 
@@ -169,4 +169,21 @@ def adjust_meta(meta, f_left_offset, f_window_length, fps):
 
 
 if __name__ == "__main__":
-    run()
+    #run()
+
+    from utils.basic_utils import load_jsonl
+
+    root = '/nfs/data3/goldhofer/mad_dataset'
+    clip_frame_features = get_video_feats(root)
+    annotation_paths = [f'{root}/annotations/MAD_val.json',
+                        f'{root}/annotations/MAD_test.json', f'{root}/annotations/MAD_train.json']
+    for annotation_path in annotation_paths:
+        save_path = root + "/" + annotation_path.split("/")[-1].split(".")[0] + "_transformed.json"
+        meta = load_jsonl(save_path)
+
+        for m in tqdm(meta):
+            m["duration"]=150
+
+        with open(root + "/annotations/" + annotation_path.split("/")[-1].split(".")[0] + "_transformed.json", "w") as f:
+            f.write("\n".join([json.dumps(e) for e in meta]))
+        print(f'saved to: {save_path}')
