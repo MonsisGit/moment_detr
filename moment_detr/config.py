@@ -60,8 +60,8 @@ class BaseOptions(object):
                             help="if None, will be set automatically when using --resume_all")
 
         # Data config
-        parser.add_argument("--max_q_l", type=int, default=32)
-        parser.add_argument("--max_v_l", type=int, default=75)
+        parser.add_argument("--max_q_l", type=int, default=200)
+        parser.add_argument("--max_v_l", type=int, default=500)
         parser.add_argument("--clip_length", type=int, default=2)
         parser.add_argument("--max_windows", type=int, default=5)
 
