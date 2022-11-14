@@ -58,7 +58,7 @@ conda actiavte moment_detr
 # install pytorch with CUDA 11.0
 conda install pytorch torchvision torchaudio cudatoolkit=11.0 -c pytorch
 # install other python packages
-pip install tqdm ipython easydict tensorboard tabulate scikit-learn pandas
+pip install tqdm ipython easydict tensorboard tabulate scikit-learn pandas h5py==3.7.0
 ```
 The PyTorch version we tested is `1.9.0`.
 
