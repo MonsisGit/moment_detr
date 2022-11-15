@@ -33,7 +33,7 @@ class StartEndDataset(Dataset):
                  max_q_l=32, max_v_l=75, data_ratio=1.0, ctx_mode="video",
                  normalize_v=True, normalize_t=True, load_labels=True,
                  clip_len=2, max_windows=5, span_loss_type="l1", txt_drop_ratio=0, sampling_fps=0.5,
-                 sampling_mode='fixed'):
+                 sampling_mode='fixed', lang_feat_path='CLIP_L14_language_tokens_features'):
         self.dset_name = dset_name
         self.data_path = data_path
         self.data_ratio = data_ratio
@@ -53,6 +53,7 @@ class StartEndDataset(Dataset):
         self.max_windows = max_windows  # maximum number of windows to use as labels
         self.span_loss_type = span_loss_type
         self.txt_drop_ratio = txt_drop_ratio
+        self.lang_feat_path = lang_feat_path
         self.lang_feats = self.get_lang_feats()
         self.sampling_fps = sampling_fps
         self.sampling_mode = sampling_mode
@@ -202,7 +203,8 @@ class StartEndDataset(Dataset):
         return torch.from_numpy(q_feat)  # (D, ) or (Lq, D)
 
     def get_lang_feats(self):
-        return h5py.File(f'{self.q_feat_dir}CLIP_B32_language_tokens_features.h5', 'r')
+        print(f'LOADING: {self.q_feat_dir}{self.lang_feat_path}')
+        return h5py.File(f'{self.q_feat_dir}{self.lang_feat_path}', 'r')
 
     def random_drop_rows(self, embeddings):
         """randomly mask num_drop rows in embeddings to be zero.

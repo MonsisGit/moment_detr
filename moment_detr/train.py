@@ -112,11 +112,9 @@ def train(model, criterion, optimizer, lr_scheduler, train_dataset, val_dataset,
         collate_fn=start_end_collate,
         batch_size=opt.bsz,
         num_workers=opt.num_workers,
-        shuffle=False,
+        shuffle=True,
         pin_memory=opt.pin_memory
     )
-    #TODO set shuffle to False!!!!
-
     prev_best_score = 0.
     es_cnt = 0
     # start_epoch = 0
@@ -129,8 +127,7 @@ def train(model, criterion, optimizer, lr_scheduler, train_dataset, val_dataset,
         if epoch_i > -1:
             train_epoch(model, criterion, train_loader, optimizer, opt, epoch_i, tb_writer)
             lr_scheduler.step()
-        eval_epoch_interval = 1 #if opt.debug else 5
-        if opt.eval_path is not None and (epoch_i + 1) % eval_epoch_interval == 0:
+        if opt.eval_path is not None and (epoch_i + 1) % opt.eval_epoch_interval == 0:
             with torch.no_grad():
                 metrics_no_nms, metrics_nms, eval_loss_meters, latest_file_paths = \
                     eval_epoch(model, val_dataset, opt, save_submission_filename, epoch_i, criterion, tb_writer)
@@ -235,7 +232,8 @@ def start_training():
         span_loss_type=opt.span_loss_type,
         txt_drop_ratio=opt.txt_drop_ratio,
         sampling_fps=opt.sampling_fps,
-        sampling_mode=opt.sampling_mode
+        sampling_mode=opt.sampling_mode,
+        lang_feat_path=opt.lang_feat_path
 
     )
 

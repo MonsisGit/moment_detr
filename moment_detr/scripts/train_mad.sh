@@ -20,9 +20,11 @@ bsz=128
 cuda_visible_devices=1
 eval_results_dir=L14_5FPS
 lw_saliency=0
-data_ratio=1
+data_ratio=0.05
 num_workers=16
-n_epoch=200
+n_epoch=400
+lr=0.001
+lr_drop=50
 
 PYTHONPATH=$PYTHONPATH:. python moment_detr/train.py \
 --dset_name ${dset_name} \
@@ -43,4 +45,6 @@ PYTHONPATH=$PYTHONPATH:. python moment_detr/train.py \
 --eval_results_dir ${eval_results_dir} \
 --lw_saliency ${lw_saliency} \
 --data_ratio ${data_ratio} \
+--lr ${lr} \
+--lr_drop ${lr_drop} \
 ${@:1}
