@@ -14,7 +14,7 @@ eval_split_name=val
 v_feat_dirs=(/nfs/data3/goldhofer/mad_dataset/clip_frame_features_transformed_dense/)
 v_feat_dim=768
 t_feat_dir=/nfs/data3/goldhofer/mad_dataset/
-t_feat_dim=512
+t_feat_dim=768
 #### training
 bsz=128
 cuda_visible_devices=1

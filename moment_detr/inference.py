@@ -241,7 +241,8 @@ def start_inference():
         load_labels=True,  # opt.eval_split_name == "val",
         span_loss_type=opt.span_loss_type,
         txt_drop_ratio=0,
-        sampling_fps=opt.sampling_fps
+        sampling_fps=opt.sampling_fps,
+        sampling_mode=opt.sampling_mode
     )
 
     model, criterion, _, _ = setup_model(opt)

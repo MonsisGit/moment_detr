@@ -11,6 +11,8 @@ tmp*.py
 *pickle
 credentials
 
+#nfs files
+**/[Nn]fs*
 # compiled files #
 *.pyc
 

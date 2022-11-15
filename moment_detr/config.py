@@ -149,6 +149,8 @@ class BaseOptions(object):
                             help="list of cuda visible devices")
         parser.add_argument("--eval_results_dir", type=str, default=None,
                                  help="dir to save results, if not set, fall back to training results_dir")
+        parser.add_argument("--sampling_mode", type=str, default="fixed",
+                                 help="Available Frame sampling modes are: fixed, random, pooling")
         self.parser = parser
 
 

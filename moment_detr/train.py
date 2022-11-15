@@ -234,7 +234,9 @@ def start_training():
         max_windows=opt.max_windows,
         span_loss_type=opt.span_loss_type,
         txt_drop_ratio=opt.txt_drop_ratio,
-        sampling_fps=opt.sampling_fps
+        sampling_fps=opt.sampling_fps,
+        sampling_mode=opt.sampling_mode
+
     )
 
     dataset_config["data_path"] = opt.train_path
