@@ -193,9 +193,9 @@ class StartEndDataset(Dataset):
             q_feat = np.load(q_feat_path)[self.q_feat_type].astype(np.float32)
         if self.q_feat_type == "last_hidden_state":
             q_feat = q_feat[:self.max_q_l]
-            if self.max_q_l < q_feat.shape[0]:
-                print(
-                    f'Query feature length ({q_feat.shape[0]}) is longer than set max query length ({self.max_q_l})"')
+            #if self.max_q_l < q_feat.shape[0]:
+            #    print(
+            #        f'Query feature length ({q_feat.shape[0]}) is longer than set max query length ({self.max_q_l})"')
         if self.normalize_t:
             q_feat = l2_normalize_np_array(q_feat)
         if self.txt_drop_ratio > 0:
@@ -234,7 +234,7 @@ class StartEndDataset(Dataset):
                 elif self.sampling_mode == 'pooling':
                     num_frames_to_pool = int(5 / sampling_fps)
                     first_dim = _feat.shape[0] / num_frames_to_pool
-                    assert first_dim % 1 == 0, f"pooling shapes ({first_dim},{num_frames_to_pool},-1) dont match"
+                    #assert first_dim % 1 == 0, f"pooling shapes ({first_dim},{num_frames_to_pool},-1) dont match"
                     _feat = _feat.reshape(int(first_dim), num_frames_to_pool, -1).mean(axis=1)
                 else:
                     raise NotImplementedError

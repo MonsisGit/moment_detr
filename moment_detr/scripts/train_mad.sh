@@ -18,7 +18,6 @@ t_feat_dim=768
 #### training
 bsz=128
 cuda_visible_devices=0
-eval_results_dir=L14_5FPS_dr0.5_lr1e-3_lrd50
 lw_saliency=0
 data_ratio=0.05
 num_workers=16
@@ -26,7 +25,8 @@ n_epoch=400
 lr=0.001
 lr_drop=50
 lang_feat_path=CLIP_L14_language_tokens_features.h5
-sampling_mode=pooling
+sampling_mode=fixed
+eval_results_dir=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_lrd${lr_drop}_sm.${sampling_mode}_dr${data_ratio}
 
 PYTHONPATH=$PYTHONPATH:. python moment_detr/train.py \
 --dset_name ${dset_name} \
