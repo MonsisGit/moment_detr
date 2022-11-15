@@ -32,7 +32,8 @@ class StartEndDataset(Dataset):
                  q_feat_type="last_hidden_state",
                  max_q_l=32, max_v_l=75, data_ratio=1.0, ctx_mode="video",
                  normalize_v=True, normalize_t=True, load_labels=True,
-                 clip_len=2, max_windows=5, span_loss_type="l1", txt_drop_ratio=0, sampling_fps=0.5):
+                 clip_len=2, max_windows=5, span_loss_type="l1", txt_drop_ratio=0, sampling_fps=0.5,
+                 sampling_mode='fixed', lang_feat_path='CLIP_L14_language_tokens_features'):
         self.dset_name = dset_name
         self.data_path = data_path
         self.data_ratio = data_ratio
@@ -52,8 +53,11 @@ class StartEndDataset(Dataset):
         self.max_windows = max_windows  # maximum number of windows to use as labels
         self.span_loss_type = span_loss_type
         self.txt_drop_ratio = txt_drop_ratio
+        self.lang_feat_path = lang_feat_path
         self.lang_feats = self.get_lang_feats()
         self.sampling_fps = sampling_fps
+        self.sampling_mode = sampling_mode
+        self.rng = np.random.default_rng(42)
         self.using_mat_dataset = True if "mad_dataset" in self.data_path else False
         if "val" in data_path or "test" in data_path:
             assert txt_drop_ratio == 0
@@ -199,7 +203,8 @@ class StartEndDataset(Dataset):
         return torch.from_numpy(q_feat)  # (D, ) or (Lq, D)
 
     def get_lang_feats(self):
-        return h5py.File(f'{self.q_feat_dir}CLIP_B32_language_tokens_features.h5', 'r')
+        print(f'LOADING: {self.q_feat_dir}{self.lang_feat_path}')
+        return h5py.File(f'{self.q_feat_dir}{self.lang_feat_path}', 'r')
 
     def random_drop_rows(self, embeddings):
         """randomly mask num_drop rows in embeddings to be zero.
@@ -217,10 +222,23 @@ class StartEndDataset(Dataset):
         v_feat_list = []
         for _feat_dir in self.v_feat_dirs:
             _feat_path = join(_feat_dir, f"{vid}.npz")
+            _feat = np.load(_feat_path)["features"].astype(np.float32)
             if train:
-                _feat = np.load(_feat_path)["features"][:self.max_v_l].astype(np.float32)
+                _feat = _feat[:self.max_v_l]
             else:
-                _feat = np.load(_feat_path)["features"][::int(5 / sampling_fps)].astype(np.float32)
+                if self.sampling_mode == 'fixed':
+                    _feat = _feat[::int(5 / sampling_fps)]
+                elif self.sampling_mode == 'random':
+                    num_frames = int(_feat.shape[0] / (5 / sampling_fps))
+                    _feat = self.rng.choice(_feat, size=num_frames, replace=False, axis=0, shuffle=False)
+                elif self.sampling_mode == 'pooling':
+                    num_frames_to_pool = int(5 / sampling_fps)
+                    first_dim = _feat.shape[0] / num_frames_to_pool
+                    assert first_dim % 1 == 0, f"pooling shapes ({first_dim},{num_frames_to_pool},-1) dont match"
+                    _feat = _feat.reshape(int(first_dim), num_frames_to_pool, -1).mean(axis=1)
+                else:
+                    raise NotImplementedError
+
             if self.normalize_v:
                 _feat = l2_normalize_np_array(_feat)
             v_feat_list.append(_feat)
