@@ -17,14 +17,16 @@ t_feat_dir=/nfs/data3/goldhofer/mad_dataset/
 t_feat_dim=768
 #### training
 bsz=128
-cuda_visible_devices=1
-eval_results_dir=L14_5FPS
+cuda_visible_devices=0
+eval_results_dir=L14_5FPS_dr0.5_lr1e-3_lrd50
 lw_saliency=0
 data_ratio=0.05
 num_workers=16
 n_epoch=400
 lr=0.001
 lr_drop=50
+lang_feat_path=CLIP_L14_language_tokens_features.h5
+sampling_mode=pooling
 
 PYTHONPATH=$PYTHONPATH:. python moment_detr/train.py \
 --dset_name ${dset_name} \
@@ -47,4 +49,6 @@ PYTHONPATH=$PYTHONPATH:. python moment_detr/train.py \
 --data_ratio ${data_ratio} \
 --lr ${lr} \
 --lr_drop ${lr_drop} \
+--sampling_mode ${sampling_mode} \
+--lang_feat_path ${lang_feat_path}\
 ${@:1}

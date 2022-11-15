@@ -151,7 +151,7 @@ class BaseOptions(object):
                                  help="dir to save results, if not set, fall back to training results_dir")
         parser.add_argument("--sampling_mode", type=str, default="fixed",
                                  help="Available Frame sampling modes are: fixed, random, pooling")
-        parser.add_argument("--lang_feat_path", type=str, default="CLIP_B32_language_tokens_features.h5")
+        parser.add_argument("--lang_feat_path", type=str, default="CLIP_L14_language_tokens_features.h5")
 
         self.parser = parser
 
