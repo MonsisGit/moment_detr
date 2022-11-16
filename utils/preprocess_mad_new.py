@@ -1,28 +1,28 @@
-import os
 import json
 import h5py
 import random
 import numpy as np
-import pickle as pk
 from tqdm import tqdm
-import traceback
+from pathlib import Path
 
 
 class MADdataset():
 
     def __init__(self, root, video_feat_file,
-                 generated_feats_save_path, log_folder):
+                 generated_feats_save_folder, log_folder):
 
         self.sampling_fps = None
         self.sampling_mode = None
         self.clip_length_in_frames = None
         self.clip_length_in_seconds = None
         self.dataset_fps = None
+
         self.root = root
         self.rng = np.random.default_rng(42)
-        self.generated_feats_save_path = generated_feats_save_path
+        self.generated_feats_save_path = generated_feats_save_folder
+        Path(generated_feats_save_folder).mkdir(parents=True, exist_ok=True)
+
         self.log_folder = log_folder
-        # load annotation file
         self.annos = []
         self.old_annos = []
         print(f'Loading {root}/{video_feat_file}')
@@ -109,7 +109,8 @@ class MADdataset():
             f.write("\n".join([json.dumps(e) for e in self.annos]))
         print(f'Saved annotations to: {anno_save_path}')
 
-        anno_save_path = f'{self.root}{anno_path.split(".json")[0]}_log.json'
+        Path(f'{self.root}{self.log_folder}').mkdir(parents=True, exist_ok=True)
+        anno_save_path = f'{self.root}{self.log_folder}{anno_path.split(".json")[0]}_log.json'
         with open(anno_save_path, "w") as f:
             f.write("\n".join([json.dumps(e) for e in self.old_annos]))
         print(f'Saved old annotations log to: {anno_save_path}')
@@ -178,7 +179,7 @@ class MADdataset():
 if __name__ == "__main__":
     preprocessor = MADdataset(root='/nfs/data3/goldhofer/mad_dataset/',
                               video_feat_file='CLIP_L14_frames_features_5fps.h5',
-                              generated_feats_save_path='clip_frame_features_transformed_exact/',
+                              generated_feats_save_folder='clip_frame_features_transformed_exact/',
                               log_folder='meta_log/')
 
     preprocessor.compute_annotations(anno_path=f'annotations/MAD_val.json',
