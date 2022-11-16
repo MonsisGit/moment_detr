@@ -5,6 +5,7 @@ import numpy as np
 from tqdm import tqdm
 from pathlib import Path
 import argparse
+from utils.basic_utils import dict_to_markdown
 
 
 class MADdataset():
@@ -55,7 +56,7 @@ class MADdataset():
         self.discarded_data_counter = 0
         self.sampling_mode = sampling_mode
         self.sampling_fps = sampling_fps
-        if self.sampling_mode == "None":
+        if self.sampling_mode == "None" and self.sampling_fps != self.dataset_fps:
             print(f'###################################################################################################'
                   f'\nSampling mode is {self.sampling_mode},'
                   f' sampling FPS ({self.sampling_fps}) has no influence.'
@@ -64,9 +65,8 @@ class MADdataset():
 
         annos = json.load(open(f'{self.root}{anno_path}', 'r'))
 
-        print(f'\nUsing sampling mode: {self.sampling_mode},'
-              f'\nSaving npz files to {self.root}{self.generated_feats_save_path}')
-        print(f'\n\nProcessing {anno_path} ..')
+        print(f'\nSaving to {self.root}{self.generated_feats_save_path}')
+        print(f'\nProcessing {anno_path} ..')
 
         for k, anno in tqdm(list(annos.items())[0:int(len(annos.items()) * process_fraction)]):
             # Unpack Info ----------------------------------------------------------------
@@ -164,14 +164,12 @@ class MADdataset():
 
         if l2_normalize:
             feats = self._l2_normalize_np_array(feats)
-
-        feats = self._sampling(feats)
+        if self.sampling_mode != "None":
+            feats = self._sampling(feats)
         return feats, start_moment, stop_moment
 
     def _sampling(self, feats):
-        if self.sampling_mode == 'None':
-            return feats
-        elif self.sampling_mode == 'fixed':
+        if self.sampling_mode == 'fixed':
             feats = feats[::int(5 / self.sampling_fps)]
         elif self.sampling_mode == 'random':
             num_frames = int(feats.shape[0] / (5 / self.sampling_fps))
@@ -204,6 +202,8 @@ if __name__ == "__main__":
     parser.add_argument("--sampling_fps", type=float, default=0.5)
     parser.add_argument("--sampling_mode", type=str, default='None', choices=["None", "random", "fixed", "pooling"])
     args = parser.parse_args()
+    # Display settings
+    print(dict_to_markdown(vars(args), max_str_len=120))
 
     preprocessor = MADdataset(root=args.root,
                               video_feat_file=args.video_feat_file,
