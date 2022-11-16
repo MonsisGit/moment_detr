@@ -27,7 +27,7 @@ class MADdataset():
         self.log_folder = log_folder
         self.annos = []
         self.old_annos = []
-        print(f'Loading {root}/{video_feat_file}')
+        print(f'Loading {root}{video_feat_file}')
         self.video_feats = h5py.File(f'{root}/{video_feat_file}', 'r')
         self.discarded_data_counter = 0
 
@@ -35,8 +35,8 @@ class MADdataset():
                             clip_length_in_seconds, l2_normalize,
                             process_fraction, sampling_mode, sampling_fps):
         '''
-            The function processes the annotations computing language tokenizationa and query features.
-            Construct the moment annotations for training and the target iou2d map.
+            The function processes the query features.
+            Construct the moment annotations for training.
             Processed the language to obtain syntactic dependencies.
             Dump everything in the pickle file for speading up following run.
             INPUTS:
@@ -49,15 +49,25 @@ class MADdataset():
         self.annos = []
         self.old_annos = []
         self.clip_length_in_seconds = clip_length_in_seconds
-        self.dataset_fps = dataset_fps
-        self.clip_length_in_frames = clip_length_in_seconds * dataset_fps
+        assert (clip_length_in_seconds * self.dataset_fps) % 1 == 0, \
+            f'with dataset FPS of {self.dataset_fps}, frames can only be extracted at {1 / self.dataset_fps} increments'
+        self.clip_length_in_frames = int(clip_length_in_seconds * self.dataset_fps)
         self.discarded_data_counter = 0
         self.sampling_mode = sampling_mode
         self.sampling_fps = sampling_fps
+        if self.sampling_mode == "None":
+            print(f'###################################################################################################'
+                  f'\nSampling mode is {self.sampling_mode},'
+                  f' sampling FPS ({self.sampling_fps}) has no influence.'
+                  f' If you want to sample, set sampling mode to something else, e.g. fixed'
+                  f'\n###################################################################################################')
 
         annos = json.load(open(f'{self.root}{anno_path}', 'r'))
 
-        print(f'Processing {anno_path} ..')
+        print(f'\nUsing sampling mode: {self.sampling_mode},'
+              f'\nSaving npz files to {self.root}{self.generated_feats_save_path}')
+        print(f'\n\nProcessing {anno_path} ..')
+
         for k, anno in tqdm(list(annos.items())[0:int(len(annos.items()) * process_fraction)]):
             # Unpack Info ----------------------------------------------------------------
 
@@ -95,7 +105,7 @@ class MADdataset():
 
                 self.old_annos.append(temp_dict)
                 self.annos.append(dump_dict)
-                np.savez(f'{self.root}/{self.generated_feats_save_path}{k}.npz', features=video_features)
+                np.savez(f'{self.root}{self.generated_feats_save_path}{k}.npz', features=video_features)
 
             else:
                 self.discarded_data_counter += 1
@@ -111,7 +121,7 @@ class MADdataset():
         print(f'Saved annotations to: {anno_save_path}')
 
         Path(f'{self.root}{self.log_folder}').mkdir(parents=True, exist_ok=True)
-        anno_save_path = f'{self.root}{self.log_folder}{anno_path.split("/")[-1].split(".json")[0]}_log.json'
+        anno_save_path = f'{self.root}{self.log_folder}/{anno_path.split("/")[-1].split(".json")[0]}_log.json'
         with open(anno_save_path, "w") as f:
             f.write("\n".join([json.dumps(e) for e in self.old_annos]))
         print(f'Saved old annotations log to: {anno_save_path}')
@@ -181,13 +191,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=str, default='/nfs/data3/goldhofer/mad_dataset/')
     parser.add_argument("--video_feat_file", type=str, default='CLIP_L14_frames_features_5fps.h5')
-    parser.add_argument("--generated_feats_save_folder", default="clip_frame_features_transformed_exact")
+    parser.add_argument("--generated_feats_save_folder", default="clip_frame_features/")
     parser.add_argument("--log_folder", type=str, default='meta_log')
     parser.add_argument("--anno_path", type=str, default="annotations/MAD_val.json")
     parser.add_argument("--anno_save_path", default="annotations/MAD_val_transformed.json")
 
     parser.add_argument("--dataset_fps", type=int, default=5)
-    parser.add_argument("--clip_length_in_seconds", type=int, default=150)
+    parser.add_argument("--clip_length_in_seconds", type=float, default=150.0)
     parser.add_argument("--l2_normalize", type=bool, default=False)
 
     parser.add_argument("--process_fraction", type=float, default=1.0)
