@@ -55,9 +55,6 @@ class StartEndDataset(Dataset):
         self.txt_drop_ratio = txt_drop_ratio
         self.lang_feat_path = lang_feat_path
         self.lang_feats = self.get_lang_feats()
-        self.sampling_fps = sampling_fps
-        self.sampling_mode = sampling_mode
-        self.rng = np.random.default_rng(42)
         self.using_mat_dataset = True if "mad_dataset" in self.data_path else False
         if "val" in data_path or "test" in data_path:
             assert txt_drop_ratio == 0
@@ -85,15 +82,13 @@ class StartEndDataset(Dataset):
 
         model_inputs = dict()
 
-        model_inputs["query_feat"] = self._get_query_feat_by_qid(meta["qid"])  # (Dq, ) or (Lq, Dq)
+        model_inputs["query_feat"] = self._get_query_feat_by_qid(meta["id"])  # (Dq, ) or (Lq, Dq)
         if self.use_video:
-            model_inputs["video_feat"] = self._get_video_feat_by_vid(meta["vid"], self.sampling_fps)  # (Lv, Dv)
+            model_inputs["video_feat"] = self._get_video_feat_by_vid(meta["id"])  # (Lv, Dv)
 
             ctx_l = len(model_inputs["video_feat"])
         else:
             ctx_l = self.max_v_l
-
-        assert meta["qid"] == meta["vid"], "vid and qid dont match"
 
         if self.use_tef:
             tef_st = torch.arange(0, ctx_l, 1.0) / ctx_l
@@ -107,12 +102,12 @@ class StartEndDataset(Dataset):
 
         if self.load_labels:
             model_inputs["span_labels"] = self.get_span_labels(meta["relevant_windows"], ctx_l)  # (#windows, 2)
-            if "subs_train" not in self.data_path:
-                model_inputs["saliency_pos_labels"], model_inputs["saliency_neg_labels"] = \
-                    self.get_saliency_labels(meta["relevant_clip_ids"], meta["saliency_scores"], ctx_l)
-            else:
-                model_inputs["saliency_pos_labels"], model_inputs["saliency_neg_labels"] = \
-                    self.get_saliency_labels_sub_as_query(meta["relevant_windows"][0], ctx_l)  # only one gt
+            # if "subs_train" not in self.data_path:
+            #     model_inputs["saliency_pos_labels"], model_inputs["saliency_neg_labels"] = \
+            #         self.get_saliency_labels(meta["relevant_clip_ids"], meta["saliency_scores"], ctx_l)
+            # else:
+            model_inputs["saliency_pos_labels"], model_inputs["saliency_neg_labels"] = \
+                self.get_saliency_labels_sub_as_query(meta["relevant_windows"][0], ctx_l)  # only one gt
         return dict(meta=meta, model_inputs=model_inputs)
 
     def get_saliency_labels_sub_as_query(self, gt_window, ctx_l, max_n=2):
@@ -193,9 +188,6 @@ class StartEndDataset(Dataset):
             q_feat = np.load(q_feat_path)[self.q_feat_type].astype(np.float32)
         if self.q_feat_type == "last_hidden_state":
             q_feat = q_feat[:self.max_q_l]
-            #if self.max_q_l < q_feat.shape[0]:
-            #    print(
-            #        f'Query feature length ({q_feat.shape[0]}) is longer than set max query length ({self.max_q_l})"')
         if self.normalize_t:
             q_feat = l2_normalize_np_array(q_feat)
         if self.txt_drop_ratio > 0:
@@ -218,26 +210,11 @@ class StartEndDataset(Dataset):
             embeddings[row_indices] = 0
         return embeddings
 
-    def _get_video_feat_by_vid(self, vid, sampling_fps=0.5, train=False):
+    def _get_video_feat_by_vid(self, vid):
         v_feat_list = []
         for _feat_dir in self.v_feat_dirs:
             _feat_path = join(_feat_dir, f"{vid}.npz")
-            _feat = np.load(_feat_path)["features"].astype(np.float32)
-            if train:
-                _feat = _feat[:self.max_v_l]
-            else:
-                if self.sampling_mode == 'fixed':
-                    _feat = _feat[::int(5 / sampling_fps)]
-                elif self.sampling_mode == 'random':
-                    num_frames = int(_feat.shape[0] / (5 / sampling_fps))
-                    _feat = self.rng.choice(_feat, size=num_frames, replace=False, axis=0, shuffle=False)
-                elif self.sampling_mode == 'pooling':
-                    num_frames_to_pool = int(5 / sampling_fps)
-                    first_dim = _feat.shape[0] / num_frames_to_pool
-                    #assert first_dim % 1 == 0, f"pooling shapes ({first_dim},{num_frames_to_pool},-1) dont match"
-                    _feat = _feat.reshape(int(first_dim), num_frames_to_pool, -1).mean(axis=1)
-                else:
-                    raise NotImplementedError
+            _feat = np.load(_feat_path)["features"].astype(np.float32)[:self.max_v_l]
 
             if self.normalize_v:
                 _feat = l2_normalize_np_array(_feat)

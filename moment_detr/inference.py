@@ -126,9 +126,9 @@ def compute_mr_results(model, eval_loader, opt, epoch_i=None, criterion=None, tb
                 cur_ranked_preds = sorted(cur_ranked_preds, key=lambda x: x[2], reverse=True)
             cur_ranked_preds = [[float(f"{e:.4f}") for e in row] for row in cur_ranked_preds]
             cur_query_pred = dict(
-                qid=meta["qid"],
+                qid=meta["id"],
                 query=meta["query"],
-                vid=meta["vid"],
+                vid=meta["id"],
                 pred_relevant_windows=cur_ranked_preds,
                 pred_saliency_scores=saliency_scores[idx]
             )
