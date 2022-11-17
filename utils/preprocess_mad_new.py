@@ -6,6 +6,7 @@ from tqdm import tqdm
 from pathlib import Path
 import argparse
 from utils.basic_utils import dict_to_markdown
+import math
 
 
 class MADdataset():
@@ -68,7 +69,7 @@ class MADdataset():
         print(f'\nSaving to {self.root}{self.generated_feats_save_path}')
         print(f'\nProcessing {anno_path} ..')
 
-        for k, anno in tqdm(list(annos.items())[0:int(len(annos.items()) * process_fraction)]):
+        for k, anno in tqdm(list(annos.items())[0:int(len(annos.items()) * process_fraction)][::-1]):
             # Unpack Info ----------------------------------------------------------------
 
             movie = anno['movie']
@@ -142,12 +143,15 @@ class MADdataset():
 
         if num_frames < self.clip_length_in_frames:
             offset = random.sample(range(0, self.clip_length_in_frames - num_frames, 1), 1)[0]
+            start_window = max(start_idx - offset, 0)
         else:
             center = (start_idx + stop_idx) / 2
-            offset = int(round(center / 2))
+            offset = int(math.floor(self.clip_length_in_frames / 2))
+            start_window = max(center - offset, 0)
+            print(f'num frames in moment longer than window length, adjusting offset to {offset}')
 
         # Compute features for window
-        start_window = max(start_idx - offset, 0)
+
         stop_window = start_window + self.clip_length_in_frames
 
         if not stop_window <= anno['movie_duration'] * self.dataset_fps:
@@ -161,6 +165,9 @@ class MADdataset():
         # Compute moment position within the window in seconds
         start_moment = max((start_idx - start_window) / self.dataset_fps, 0)
         stop_moment = min((stop_idx - start_window) / self.dataset_fps, self.clip_length_in_seconds)
+
+        assert 0 <= start_moment <= self.clip_length_in_seconds
+        assert 0 <= stop_moment <= self.clip_length_in_seconds
 
         if l2_normalize:
             feats = self._l2_normalize_np_array(feats)
@@ -189,10 +196,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=str, default='/nfs/data3/goldhofer/mad_dataset/')
     parser.add_argument("--video_feat_file", type=str, default='CLIP_L14_frames_features_5fps.h5')
-    parser.add_argument("--generated_feats_save_folder", default="clip_frame_features/")
+    parser.add_argument("--generated_feats_save_folder", default="clip_frame_features_test/")
     parser.add_argument("--log_folder", type=str, default='meta_log')
     parser.add_argument("--anno_path", type=str, default="annotations/MAD_val.json")
-    parser.add_argument("--anno_save_path", default="annotations/MAD_val_transformed.json")
+    parser.add_argument("--anno_save_path", default="annotations/MAD_val_transformed_test.json")
 
     parser.add_argument("--dataset_fps", type=int, default=5)
     parser.add_argument("--clip_length_in_seconds", type=float, default=150.0)
