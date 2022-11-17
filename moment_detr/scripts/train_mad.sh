@@ -16,13 +16,13 @@ v_feat_dim=768
 t_feat_dir=/nfs/data3/goldhofer/mad_dataset/
 t_feat_dim=768
 #### training
-bsz=32
+bsz=256
 cuda_visible_devices=3
 lw_saliency=0
-data_ratio=0.05
-num_workers=16
+data_ratio=0.1
+num_workers=12
 n_epoch=400
-lr=0.0001
+lr=8e-4
 lr_drop=50
 lang_feat_path=CLIP_L14_language_tokens_features.h5
 eval_results_dir=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_lrd${lr_drop}_dr${data_ratio}
@@ -48,6 +48,6 @@ PYTHONPATH=$PYTHONPATH:. python moment_detr/train.py \
 --data_ratio ${data_ratio} \
 --lr ${lr} \
 --lr_drop ${lr_drop} \
---lang_feat_path ${lang_feat_path}\
+--lang_feat_path ${lang_feat_path} \
 --no_norm_vfeat
 ${@:1}
