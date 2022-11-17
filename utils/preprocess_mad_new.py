@@ -6,7 +6,7 @@ from tqdm import tqdm
 from pathlib import Path
 import argparse
 from utils.basic_utils import dict_to_markdown
-import math
+import traceback
 
 
 class MADdataset():
@@ -69,49 +69,53 @@ class MADdataset():
         print(f'\nSaving to {self.root}{self.generated_feats_save_path}')
         print(f'\nProcessing {anno_path} ..')
 
-        for k, anno in tqdm(list(annos.items())[0:int(len(annos.items()) * process_fraction)][::-1]):
+        for k, anno in tqdm(list(annos.items())[0:int(len(annos.items()) * process_fraction)]):
             # Unpack Info ----------------------------------------------------------------
+            try:
+                movie = anno['movie']
+                duration = anno['movie_duration']
+                timestamp = anno['ext_timestamps']
+                sentence = anno['sentence']
 
-            movie = anno['movie']
-            duration = anno['movie_duration']
-            timestamp = anno['ext_timestamps']
-            sentence = anno['sentence']
+                # Process gt annotations -----------------------------------------------------
+                if timestamp[0] < timestamp[1]:
+                    moment = [max(timestamp[0], 0), min(timestamp[1], duration)]
 
-            # Process gt annotations -----------------------------------------------------
-            if timestamp[0] < timestamp[1]:
-                moment = [max(timestamp[0], 0), min(timestamp[1], duration)]
+                    start = int(moment[0] * self.dataset_fps)
+                    stop = int(moment[1] * self.dataset_fps)
 
-                start = int(moment[0] * self.dataset_fps)
-                stop = int(moment[1] * self.dataset_fps)
+                    # frames_idx is in frame space
+                    frames_idx = [start, stop]
 
-                # frames_idx is in frame space
-                frames_idx = [start, stop]
+                    # Save preprocessed annotations ----------------------------------------------
+                    temp_dict = {
+                        'id': k,
+                        'movie': movie,
+                        'moment': moment,
+                        'frames_idx': frames_idx,
+                        'sentence': sentence,
+                        'movie_duration': duration,
+                    }
+                    video_features, start_moment, stop_moment = self._get_video_features(temp_dict, l2_normalize)
+                    dump_dict = {
+                        'id': k,
+                        'relevant_windows': [[start_moment, stop_moment]],
+                        'query': sentence,
+                        'duration': self.clip_length_in_seconds,
+                    }
 
-                # Save preprocessed annotations ----------------------------------------------
-                temp_dict = {
-                    'id': k,
-                    'movie': movie,
-                    'moment': moment,
-                    'frames_idx': frames_idx,
-                    'sentence': sentence,
-                    'movie_duration': duration,
-                }
-                video_features, start_moment, stop_moment = self._get_video_features(temp_dict, l2_normalize)
-                dump_dict = {
-                    'id': k,
-                    'relevant_windows': [[start_moment, stop_moment]],
-                    'query': sentence,
-                    'duration': self.clip_length_in_seconds,
-                }
+                    self.old_annos.append(temp_dict)
+                    self.annos.append(dump_dict)
+                    np.savez(f'{self.root}{self.generated_feats_save_path}{k}.npz', features=video_features)
 
-                self.old_annos.append(temp_dict)
-                self.annos.append(dump_dict)
-                np.savez(f'{self.root}{self.generated_feats_save_path}{k}.npz', features=video_features)
+                else:
+                    self.discarded_data_counter += 1
 
-            else:
+                    # save to file
+            except Exception as e:
+                print(e)
                 self.discarded_data_counter += 1
 
-                # save to file
         self._save_annos(anno_save_path)
         print(f'Discarded {self.discarded_data_counter} / {len(list(annos.items()))} data')
 
@@ -140,18 +144,17 @@ class MADdataset():
 
         start_idx, stop_idx = anno['frames_idx']
         num_frames = stop_idx - start_idx
+        assert num_frames > 0, f"Number of frames is {num_frames}"
 
         if num_frames < self.clip_length_in_frames:
             offset = random.sample(range(0, self.clip_length_in_frames - num_frames, 1), 1)[0]
             start_window = max(start_idx - offset, 0)
         else:
             center = (start_idx + stop_idx) / 2
-            offset = int(math.floor(self.clip_length_in_frames / 2))
-            start_window = max(center - offset, 0)
-            print(f'num frames in moment longer than window length, adjusting offset to {offset}')
+            offset = self.clip_length_in_frames / 2
+            start_window = max(int(center - offset), 0)
 
         # Compute features for window
-
         stop_window = start_window + self.clip_length_in_frames
 
         if not stop_window <= anno['movie_duration'] * self.dataset_fps:
@@ -166,8 +169,8 @@ class MADdataset():
         start_moment = max((start_idx - start_window) / self.dataset_fps, 0)
         stop_moment = min((stop_idx - start_window) / self.dataset_fps, self.clip_length_in_seconds)
 
-        assert 0 <= start_moment <= self.clip_length_in_seconds
-        assert 0 <= stop_moment <= self.clip_length_in_seconds
+        assert 0 <= start_moment <= self.clip_length_in_seconds, f'start moment ({start_moment}) outside clip'
+        assert 0 <= stop_moment <= self.clip_length_in_seconds, f'stop moment ({stop_moment}) outside clip'
 
         if l2_normalize:
             feats = self._l2_normalize_np_array(feats)
