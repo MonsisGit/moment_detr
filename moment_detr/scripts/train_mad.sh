@@ -18,13 +18,13 @@ v_feat_dim=768
 t_feat_dir=/nfs/data3/goldhofer/mad_dataset/
 t_feat_dim=768
 #### training
-bsz=256
+bsz=32
 cuda_visible_devices=0
 lw_saliency=0
 data_ratio=1
 num_workers=8
 n_epoch=100
-lr=8e-4
+lr=1e-4
 lr_drop=20
 lang_feat_path=CLIP_L14_language_tokens_features.h5
 
