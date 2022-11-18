@@ -1,207 +1,230 @@
-import copy
-import json, os
+import json
+import h5py
+import random
 import numpy as np
 from tqdm import tqdm
-import h5py
-import pickle
 from pathlib import Path
+import argparse
+from utils.basic_utils import dict_to_markdown
 import traceback
 
 
-def run():
-    root = '/nfs/data3/goldhofer/mad_dataset'
-    annotation_paths = [f'{root}/annotations/MAD_val.json',
-                        f'{root}/annotations/MAD_test.json', f'{root}/annotations/MAD_train.json']
-    frame_features_path = 'CLIP_L14_frames_features_5fps.h5'
-    annotations_filename = "_transformed_exact.json"
-    meta_filename = '_meta_log_exact.pkl'
-    save_path = 'clip_frame_features_transformed_exact/'
+class MADdataset():
 
-    clip_frame_features = get_video_feats(root, frame_features_path)
-    rng = np.random.default_rng(42)
-    Path(save_path).mkdir(parents=True, exist_ok=True)
-    id_tracker = []
-    exact_timestamps = True
+    def __init__(self, root, video_feat_file,
+                 generated_feats_save_folder, log_folder,
+                 dataset_fps):
 
-    fps = 5
-    video_length_seconds = 150
+        self.sampling_fps = None
+        self.sampling_mode = None
+        self.clip_length_in_frames = None
+        self.clip_length_in_seconds = None
+        self.dataset_fps = dataset_fps
 
-    for annotation_path in annotation_paths:
-        print(f'Processing {annotation_path}')
-        annotated_data = json.load(open(annotation_path, 'r'))
-        meta_cache = {}
-        mad_transformed = []
-        discarded_datapoints_counter = 0
+        self.root = root
+        self.rng = np.random.default_rng(42)
+        self.generated_feats_save_path = generated_feats_save_folder
+        Path(f'{root}{generated_feats_save_folder}').mkdir(parents=True, exist_ok=True)
 
-        for k in tqdm(list(annotated_data.keys())):
+        self.log_folder = log_folder
+        self.annos = []
+        self.old_annos = []
+        print(f'Loading {root}{video_feat_file}')
+        self.video_feats = h5py.File(f'{root}/{video_feat_file}', 'r')
+        self.discarded_data_counter = 0
 
+    def compute_annotations(self, anno_path, anno_save_path,
+                            clip_length_in_seconds, l2_normalize,
+                            process_fraction, sampling_mode, sampling_fps):
+        '''
+            The function processes the query features.
+            Construct the moment annotations for training.
+            Processed the language to obtain syntactic dependencies.
+            Dump everything in the pickle file for speading up following run.
+            INPUTS:
+            annos: annotations loaded from json files
+            cache: path to pickle file where to dump preprocessed annotations
+            OUTPUTS:
+            None.
+        '''
+        # compute the annotation data and dump it in a pickle file
+        self.annos = []
+        self.old_annos = []
+        self.clip_length_in_seconds = clip_length_in_seconds
+        assert (clip_length_in_seconds * self.dataset_fps) % 1 == 0, \
+            f'with dataset FPS of {self.dataset_fps}, frames can only be extracted at {1 / self.dataset_fps} increments'
+        self.clip_length_in_frames = int(clip_length_in_seconds * self.dataset_fps)
+        self.discarded_data_counter = 0
+        self.sampling_mode = sampling_mode
+        self.sampling_fps = sampling_fps
+        if self.sampling_mode == "None" and self.sampling_fps != self.dataset_fps:
+            print(f'###################################################################################################'
+                  f'\nSampling mode is {self.sampling_mode},'
+                  f' sampling FPS ({self.sampling_fps}) has no influence.'
+                  f' If you want to sample, set sampling mode to something else, e.g. fixed'
+                  f'\n###################################################################################################')
+
+        annos = json.load(open(f'{self.root}{anno_path}', 'r'))
+
+        print(f'\nSaving to {self.root}{self.generated_feats_save_path}')
+        print(f'\nProcessing {anno_path} ..')
+
+        for k, anno in tqdm(list(annos.items())[0:int(len(annos.items()) * process_fraction)]):
+            # Unpack Info ----------------------------------------------------------------
             try:
-                assert k not in id_tracker, f'duplicated id: {k}'
-                id_tracker.append(k)
+                movie = anno['movie']
+                duration = anno['movie_duration']
+                timestamp = anno['ext_timestamps']
+                sentence = anno['sentence']
 
-                if exact_timestamps:
-                    lowest_clip = annotated_data[k]["ext_timestamps"][0]
-                    highest_clip = annotated_data[k]["ext_timestamps"][1]
+                # Process gt annotations -----------------------------------------------------
+                if timestamp[0] < timestamp[1]:
+                    moment = [max(timestamp[0], 0), min(timestamp[1], duration)]
+
+                    start = int(moment[0] * self.dataset_fps)
+                    stop = int(moment[1] * self.dataset_fps)
+
+                    # frames_idx is in frame space
+                    frames_idx = [start, stop]
+
+                    # Save preprocessed annotations ----------------------------------------------
+                    temp_dict = {
+                        'id': k,
+                        'movie': movie,
+                        'moment': moment,
+                        'frames_idx': frames_idx,
+                        'sentence': sentence,
+                        'movie_duration': duration,
+                    }
+                    video_features, start_moment, stop_moment = self._get_video_features(temp_dict, l2_normalize)
+                    dump_dict = {
+                        'id': k,
+                        'relevant_windows': [[start_moment, stop_moment]],
+                        'query': sentence,
+                        'duration': self.clip_length_in_seconds,
+                    }
+
+                    self.old_annos.append(temp_dict)
+                    self.annos.append(dump_dict)
+                    np.savez(f'{self.root}{self.generated_feats_save_path}{k}.npz', features=video_features)
+
                 else:
-                    lowest_clip = int(annotated_data[k]["ext_timestamps"][0])
-                    highest_clip = int(annotated_data[k]["ext_timestamps"][1])
+                    self.discarded_data_counter += 1
 
-                    if lowest_clip % 2 != 0:
-                        lowest_clip -= 1
-                    if highest_clip % 2 != 0:
-                        highest_clip += 1
+                    # save to file
+            except Exception as e:
+                print(e)
+                self.discarded_data_counter += 1
 
-                if highest_clip > annotated_data[k]["movie_duration"]:
-                    print(
-                        f'highest clip higher than movie duration, adjusted from {highest_clip} to {int(np.floor(annotated_data[k]["movie_duration"]))}')
-                    highest_clip = int(np.floor(annotated_data[k]["movie_duration"]))
+        self._save_annos(anno_save_path)
+        print(f'Discarded {self.discarded_data_counter} / {len(list(annos.items()))} data')
 
-                if highest_clip > lowest_clip:
+    def _save_annos(self, anno_path):
+        anno_save_path = f'{self.root}{anno_path}'
+        with open(anno_save_path, "w") as f:
+            f.write("\n".join([json.dumps(e) for e in self.annos]))
+        print(f'Saved annotations to: {anno_save_path}')
 
-                    meta = {"qid": k,
-                            "query": annotated_data[k]["sentence"],
-                            "duration": video_length_seconds,
-                            "vid": k,
-                            "relevant_windows": [[lowest_clip, highest_clip]], }
-                    if not exact_timestamps:
-                        meta["relevant_clip_ids"] = [i for i in
-                                                     range(int(lowest_clip / 2), int(highest_clip / 2))]
-                        meta["saliency_scores"] = [[0, 0, 0] for _ in
-                                                   range(int(lowest_clip / 2), int(highest_clip / 2))]
+        Path(f'{self.root}{self.log_folder}').mkdir(parents=True, exist_ok=True)
+        anno_save_path = f'{self.root}{self.log_folder}/{anno_path.split("/")[-1].split(".json")[0]}_log.json'
+        with open(anno_save_path, "w") as f:
+            f.write("\n".join([json.dumps(e) for e in self.old_annos]))
+        print(f'Saved old annotations log to: {anno_save_path}')
 
-                    old_meta = copy.deepcopy(meta)
-                    sliced_frame_features, meta = slice_window(clip_frame_features[annotated_data[k]["movie"]], meta,
-                                                               rng, fps, video_length_seconds, exact_timestamps)
-                    meta_cache = log_meta(old_meta, meta, annotated_data[k], meta_cache)
+    def _get_video_features(self, anno, l2_normalize):
+        '''
+            INPUTS:
+            anno: annotation data, contains all the preprocessed information
+            movie: movie id to select the correct features
+            OUTPUTS:
+            feat: movie features
+            start_moment: start moment in seconds
+            end_moment: end moment in seconds
+        '''
 
-                    if check_dict(meta, annotated_data[k], exact_timestamps):
-                        mad_transformed.append(meta)
-                        np.savez(f'{root}/{save_path}{k}.npz', features=sliced_frame_features)
-                    else:
-                        discarded_datapoints_counter += 1
-                else:
-                    discarded_datapoints_counter += 1
-            except Exception:
-                traceback.print_exc()
-                discarded_datapoints_counter += 1
+        start_idx, stop_idx = anno['frames_idx']
+        num_frames = stop_idx - start_idx
+        assert num_frames > 0, f"Number of frames is {num_frames}"
 
-        save_annotations(annotation_path, root, mad_transformed, annotations_filename)
-        save_meta(meta_cache, root, annotation_path, meta_filename)
-        print(f'Discarded {discarded_datapoints_counter} / {len(list(annotated_data.keys()))} datapoints')
+        if num_frames < self.clip_length_in_frames:
+            offset = random.sample(range(0, self.clip_length_in_frames - num_frames, 1), 1)[0]
+            start_window = max(start_idx - offset, 0)
+        else:
+            center = (start_idx + stop_idx) / 2
+            offset = self.clip_length_in_frames / 2
+            start_window = max(int(center - offset), 0)
 
+        # Compute features for window
+        stop_window = start_window + self.clip_length_in_frames
 
-def get_video_feats(root, frame_features_path):
-    return h5py.File(f'{root}/{frame_features_path}', 'r')
+        if not stop_window <= anno['movie_duration'] * self.dataset_fps:
+            stop_window = int(anno['movie_duration'] * self.dataset_fps)
+            start_window = stop_window - self.clip_length_in_frames
 
+        feats = self.video_feats[anno['movie']][start_window:stop_window]
 
-def check_dict(meta, annotated_data, exact_timestamps):
-    try:
-        if not exact_timestamps:
-            assert len(meta["saliency_scores"]) != 0, "saliency scores are zero"
+        assert feats.shape[0] == self.clip_length_in_frames
 
-        assert len(meta["relevant_windows"][0]) != 0
-        assert meta["relevant_windows"][0][0] < meta["relevant_windows"][0][1]
-        assert 0 <= meta["relevant_windows"][0][0] < meta["relevant_windows"][0][
-            1], f'relevant window: {meta["relevant_windows"][0]}\noriginal data:\n{annotated_data}'
-        return True
-    except Exception:
-        traceback.print_exc()
+        # Compute moment position within the window in seconds
+        start_moment = max((start_idx - start_window) / self.dataset_fps, 0)
+        stop_moment = min((stop_idx - start_window) / self.dataset_fps, self.clip_length_in_seconds)
 
+        assert 0 <= start_moment <= self.clip_length_in_seconds, f'start moment ({start_moment}) outside clip'
+        assert 0 <= stop_moment <= self.clip_length_in_seconds, f'stop moment ({stop_moment}) outside clip'
 
-def save_annotations(annotation_path, root, mad_transformed, annotations_filename):
-    save_path = root + "/" + annotation_path.split("/")[-1].split(".")[0] + annotations_filename
-    with open(save_path, "w") as f:
-        f.write("\n".join([json.dumps(e) for e in mad_transformed]))
-    print(f'saved to: {save_path}')
+        if l2_normalize:
+            feats = self._l2_normalize_np_array(feats)
+        if self.sampling_mode != "None":
+            feats = self._sampling(feats)
+        return feats, start_moment, stop_moment
 
+    def _sampling(self, feats):
+        if self.sampling_mode == 'fixed':
+            feats = feats[::int(5 / self.sampling_fps)]
+        elif self.sampling_mode == 'random':
+            num_frames = int(feats.shape[0] / (5 / self.sampling_fps))
+            feats = self.rng.choice(feats, size=num_frames, replace=False, axis=0, shuffle=False)
+        elif self.sampling_mode == 'pooling':
+            num_frames_to_pool = int(5 / self.sampling_fps)
+            first_dim = feats.shape[0] / num_frames_to_pool
+            feats = feats.reshape(int(first_dim), num_frames_to_pool, -1).mean(axis=1)
+        return feats
 
-def slice_window(frame_features, meta, rng, fps, max_v_l, exact_timestamps):
-    f_max_v_l = max_v_l * fps  # qv samples at 0.5FPS, MAD at 5 FPS
-    f_relevant_windows = np.multiply(meta["relevant_windows"][0], fps)  # relevant windows seconds -> frames @ 5 FPS
-    if exact_timestamps:
-        f_relevant_windows = [int(i) for i in f_relevant_windows]
-    f_window_length = f_relevant_windows[1] - f_relevant_windows[0]
-
-    # assert f_max_v_l > f_window_length, "moment longer then max sample length"
-
-    random_window_offset = rng.random()
-    assert f_max_v_l > f_window_length, f"window length ({f_window_length}) longer than max ({f_max_v_l}), discarding datapoint"
-    f_left_offset = int(np.floor(random_window_offset * (f_max_v_l - f_window_length)))
-    f_right_offset = int(f_max_v_l - f_window_length - f_left_offset)
-
-    f_right_offset, f_left_offset = check_offsets(f_right_offset,
-                                                  f_left_offset,
-                                                  f_relevant_windows,
-                                                  f_max_v_l,
-                                                  frame_features)
-
-    window = frame_features[
-             int(f_relevant_windows[0] - f_left_offset):int(f_relevant_windows[1] + f_right_offset),
-             :]
-
-    if not exact_timestamps:
-        meta = adjust_meta(meta,
-                           f_left_offset,
-                           f_window_length,
-                           fps)
-
-    # window = rng.choice(window, size=max_v_l, replace=False, axis=0, shuffle=False)
-    return window, meta
-
-
-def check_offsets(f_right_offset, f_left_offset, f_relevant_windows, f_max_v_l, frame_features):
-    if f_relevant_windows[0] - f_left_offset < 0:
-        f_right_offset += f_left_offset
-        f_left_offset = 0
-    if f_relevant_windows[1] + f_right_offset > frame_features.shape[0]:
-        f_left_offset += f_right_offset
-        f_right_offset = 0
-
-    return f_right_offset, f_left_offset
-
-
-def log_meta(old_meta, new_meta, annotated_data, meta_cache):
-    meta_cache[old_meta["qid"]] = {"old_meta": old_meta, "new_meta": new_meta, "annotation": annotated_data}
-    return meta_cache
-
-
-def save_meta(meta_cache, root, annotation_path, meta_filename):
-    print(f'saving meta log with length: {len(meta_cache)}')
-    meta_save_path = f'{root}/{annotation_path.split("/")[-1].split(".")[0]}{meta_filename}'
-    with open(meta_save_path, 'wb') as f:
-        pickle.dump(meta_cache, f)
-    print(f'saved metadata cache to: {meta_save_path}')
-
-
-def adjust_meta(meta, f_left_offset, f_window_length, fps):
-    window_start = int(np.floor(f_left_offset / fps)) if int(np.floor(f_left_offset / fps)) % 2 == 0 else int(
-        np.floor(f_left_offset / fps)) - 1
-    new_window = [[window_start, int(window_start + f_window_length / fps)]]
-    new_clip_ids = [i for i in range(int(new_window[0][0] / 2), int(new_window[0][1] / 2))]
-
-    meta["relevant_windows"] = new_window
-    meta["relevant_clip_ids"] = new_clip_ids
-    # meta.pop("duration")
-    return meta
+    def _l2_normalize_np_array(self, feats, eps=1e-5):
+        """np_array: np.ndarray, (*, D), where the last dim will be normalized"""
+        return feats / (np.linalg.norm(feats, axis=-1, keepdims=True) + eps)
 
 
 if __name__ == "__main__":
-    run()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--root", type=str, default='/nfs/data3/goldhofer/mad_dataset/')
+    parser.add_argument("--video_feat_file", type=str, default='CLIP_L14_frames_features_5fps.h5')
+    parser.add_argument("--generated_feats_save_folder", default="clip_frame_features_test/")
+    parser.add_argument("--log_folder", type=str, default='meta_log')
+    parser.add_argument("--anno_path", type=str, default="annotations/MAD_val.json")
+    parser.add_argument("--anno_save_path", default="annotations/MAD_val_transformed_test.json")
 
-    # from utils.basic_utils import load_jsonl
-    #
-    # root = '/nfs/data3/goldhofer/mad_dataset'
-    # clip_frame_features = get_video_feats(root)
-    # annotation_paths = [f'{root}/annotations/MAD_val.json',
-    #                     f'{root}/annotations/MAD_test.json', f'{root}/annotations/MAD_train.json']
-    # for annotation_path in annotation_paths:
-    #     save_path = root + "/annotations/" + annotation_path.split("/")[-1].split(".")[0] + "_transformed.json"
-    #     meta = load_jsonl(save_path)
-    #
-    #     for m in tqdm(meta):
-    #         if m["relevant_windows"][0][1] - m["relevant_windows"][0][0] >= 120:
-    #             print(m["relevant_windows"])
+    parser.add_argument("--dataset_fps", type=int, default=5)
+    parser.add_argument("--clip_length_in_seconds", type=float, default=150.0)
+    parser.add_argument("--l2_normalize", type=bool, default=False)
 
-    # with open(root + "/annotations/" + annotation_path.split("/")[-1].split(".")[0] + "_transformed.json", "w") as f:
-    #    f.write("\n".join([json.dumps(e) for e in meta]))
-    # print(f'saved to: {save_path}')
+    parser.add_argument("--process_fraction", type=float, default=1.0)
+    parser.add_argument("--sampling_fps", type=float, default=0.5)
+    parser.add_argument("--sampling_mode", type=str, default='None', choices=["None", "random", "fixed", "pooling"])
+    args = parser.parse_args()
+    # Display settings
+    print(dict_to_markdown(vars(args), max_str_len=120))
+
+    preprocessor = MADdataset(root=args.root,
+                              video_feat_file=args.video_feat_file,
+                              generated_feats_save_folder=args.generated_feats_save_folder,
+                              log_folder=args.log_folder,
+                              dataset_fps=args.dataset_fps)
+
+    preprocessor.compute_annotations(anno_path=args.anno_path,
+                                     anno_save_path=args.anno_save_path,
+                                     clip_length_in_seconds=args.clip_length_in_seconds,
+                                     l2_normalize=args.l2_normalize,
+                                     process_fraction=args.process_fraction,
+                                     sampling_fps=args.sampling_fps,
+                                     sampling_mode=args.sampling_mode)

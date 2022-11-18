@@ -36,10 +36,10 @@ def compute_mr_ap(submission, ground_truth, iou_thds=np.linspace(0.5, 0.95, 10),
     for d in ground_truth:
         gt_windows = d["relevant_windows"][:max_gt_windows] \
             if max_gt_windows is not None else d["relevant_windows"]
-        qid = d["qid"]
+        qid = d["id"]
         for w in gt_windows:
             gt_qid2data[qid].append({
-                "video-id": d["qid"],
+                "video-id": d["id"],
                 "t-start": w[0],
                 "t-end": w[1]
             })
@@ -77,7 +77,7 @@ def compute_mr_r1(submission, ground_truth, iou_thds=np.linspace(0.5, 0.95, 10))
     gt_qid2window = {}
     for d in ground_truth:
         cur_gt_windows = d["relevant_windows"]
-        cur_qid = d["qid"]
+        cur_qid = d["id"]
         cur_max_iou_idx = 0
         if len(cur_gt_windows) > 0:  # select the GT window that has the highest IoU
             cur_ious = compute_temporal_iou_batch_cross(
@@ -124,7 +124,7 @@ def get_data_by_range(submission, ground_truth, len_range):
             d = copy.deepcopy(d)
             d["relevant_windows"] = rel_windows_in_range
             ground_truth_in_range.append(d)
-            gt_qids_in_range.add(d["qid"])
+            gt_qids_in_range.add(d["id"])
 
     # keep only submissions for ground_truth_in_range
     submission_in_range = []
@@ -231,9 +231,10 @@ def mk_gt_scores(gt_data, clip_length=2):
     """gt_data, dict, """
     num_clips = int(gt_data["duration"] / clip_length)
     saliency_scores_full_video = np.zeros((num_clips, 3))
-    relevant_clip_ids = np.array(gt_data["relevant_clip_ids"])  # (#relevant_clip_ids, )
-    saliency_scores_relevant_clips = np.array(gt_data["saliency_scores"])  # (#relevant_clip_ids, 3)
-    saliency_scores_full_video[relevant_clip_ids] = saliency_scores_relevant_clips
+    #relevant_clip_ids = np.array(gt_data["relevant_clip_ids"])  # (#relevant_clip_ids, )
+    #relevant_clip_ids = np.zeros(saliency_scores_full_video.shape[0])
+    #saliency_scores_relevant_clips = np.array(gt_data["saliency_scores"])  # (#relevant_clip_ids, 3)
+    #saliency_scores_full_video[relevant_clip_ids] = saliency_scores_relevant_clips
     return saliency_scores_full_video  # (#clips_in_video, 3)  the scores are in range [0, 4]
 
 
@@ -245,7 +246,7 @@ def eval_highlight(submission, ground_truth, verbose=True):
         verbose:
     """
     qid2preds = {d["qid"]: d for d in submission}
-    qid2gt_scores_full_range = {d["qid"]: mk_gt_scores(d) for d in ground_truth}  # scores in range [0, 4]
+    qid2gt_scores_full_range = {d["id"]: mk_gt_scores(d) for d in ground_truth}  # scores in range [0, 4]
     # gt_saliency_score_min: int, in [0, 1, 2, 3, 4]. The minimum score for a positive clip.
     gt_saliency_score_min_list = [2, 3, 4]
     saliency_score_names = ["Fair", "Good", "VeryGood"]
@@ -293,7 +294,7 @@ def eval_submission(submission, ground_truth, verbose=True, match_number=True):
 
     """
     pred_qids = set([e["qid"] for e in submission])
-    gt_qids = set([e["qid"] for e in ground_truth])
+    gt_qids = set([e["id"] for e in ground_truth])
     if match_number:
         assert pred_qids == gt_qids, \
             f"qids in ground_truth and submission must match. " \
