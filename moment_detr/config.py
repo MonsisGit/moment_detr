@@ -60,8 +60,8 @@ class BaseOptions(object):
                             help="if None, will be set automatically when using --resume_all")
 
         # Data config
-        parser.add_argument("--max_q_l", type=int, default=32)
-        parser.add_argument("--max_v_l", type=int, default=75)
+        parser.add_argument("--max_q_l", type=int, default=200)
+        parser.add_argument("--max_v_l", type=int, default=500)
         parser.add_argument("--clip_length", type=int, default=2)
         parser.add_argument("--max_windows", type=int, default=5)
 
@@ -149,6 +149,10 @@ class BaseOptions(object):
                             help="list of cuda visible devices")
         parser.add_argument("--eval_results_dir", type=str, default=None,
                                  help="dir to save results, if not set, fall back to training results_dir")
+        parser.add_argument("--sampling_mode", type=str, default="fixed",
+                                 help="Available Frame sampling modes are: fixed, random, pooling")
+        parser.add_argument("--lang_feat_path", type=str, default="CLIP_L14_language_tokens_features.h5")
+
         self.parser = parser
 
 
