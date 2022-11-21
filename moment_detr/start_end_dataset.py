@@ -1,3 +1,5 @@
+import traceback
+
 import torch
 from torch.utils.data import Dataset
 import numpy as np
@@ -214,7 +216,13 @@ class StartEndDataset(Dataset):
         v_feat_list = []
         for _feat_dir in self.v_feat_dirs:
             _feat_path = join(_feat_dir, f"{vid}.npz")
-            _feat = np.load(_feat_path)["features"].astype(np.float32)[:self.max_v_l]
+            try:
+                _feat = np.load(_feat_path)["features"].astype(np.float32)[:self.max_v_l]
+            except Exception:
+                print(f'File: {_feat_path}')
+                traceback.print_tb()
+                _feat = np.zeros(shape=(128,768))
+
 
             if self.normalize_v:
                 _feat = l2_normalize_np_array(_feat)

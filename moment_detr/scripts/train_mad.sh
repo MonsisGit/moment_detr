@@ -19,7 +19,7 @@ eval_split_name=val
 v_feat_dim=768
 t_feat_dim=768
 bsz=256
-cuda_visible_devices=2
+cuda_visible_devices=0
 lw_saliency=4
 data_ratio=1
 num_workers=8
@@ -27,14 +27,14 @@ n_epoch=100
 lr=8e-4
 lr_drop=100
 clip_length=1
-max_q_l=-1
+max_q_l=32
 max_v_l=-1
 
 ##set for results tracking!
-clip_length=25.6
+window_length=25.6
 sampling_mode=none
 fps=5
-eval_results_dir=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_lrd${lr_drop}_dr${data_ratio}_cl${clip_length}_sm${sampling_mode}_fps${fps}_lws${lw_saliency}
+eval_results_dir=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_lrd${lr_drop}_dr${data_ratio}_wl${window_length}_sm${sampling_mode}_fps${fps}_lws${lw_saliency}
 
 
 PYTHONPATH=$PYTHONPATH:. python moment_detr/train.py \
@@ -60,9 +60,9 @@ PYTHONPATH=$PYTHONPATH:. python moment_detr/train.py \
 --lr_drop ${lr_drop} \
 --lang_feat_path ${lang_feat_path} \
 --no_norm_vfeat \
---resume /nfs/data3/goldhofer/mad_dataset/momentDETR_results/CLIP_L14_bsz256_lr8e-4_lrd100_dr1_cl25.6_smnone_fps5/model_best.ckpt \
 --clip_length ${clip_length} \
 --max_q_l ${max_q_l} \
 --max_v_l ${max_v_l} \
+--resume /nfs/data3/goldhofer/mad_dataset/momentDETR_results/CLIP_L14_bsz256_lr8e-4_lrd100_dr1_wl25.6_smnone_fps5_lws4/model_best.ckpt \
 
 ${@:1}

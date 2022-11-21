@@ -6,6 +6,8 @@ import random
 import numpy as np
 from tqdm import tqdm, trange
 from collections import defaultdict
+from collections import namedtuple
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -34,6 +36,30 @@ def set_seed(seed, use_cuda=True):
     torch.manual_seed(seed)
     if use_cuda:
         torch.cuda.manual_seed_all(seed)
+
+
+
+class ModelWrapper(torch.nn.Module):
+    """ Wrapper class for model with dict/list rvalues. """
+    def __init__(self, model: torch.nn.Module) -> None:
+        """
+        Init call.
+        """
+        super().__init__()
+        self.model = model
+
+    def forward(self, input) -> Any:
+        """
+        Wrap forward call.
+        """
+        data = self.model(**input)
+
+        if isinstance(data, dict):
+
+            return data['pred_logits']
+
+        else:
+            return data
 
 
 def train_epoch(model, criterion, train_loader, optimizer, opt, epoch_i, tb_writer):
@@ -104,6 +130,8 @@ def train(model, criterion, optimizer, lr_scheduler, train_dataset, val_dataset,
 
     tb_writer = SummaryWriter(opt.tensorboard_log_dir)
     tb_writer.add_text("hyperparameters", dict_to_markdown(vars(opt), max_str_len=None))
+
+
     opt.train_log_txt_formatter = "{time_str} [Epoch] {epoch:03d} [Loss] {loss_str}\n"
     opt.eval_log_txt_formatter = "{time_str} [Epoch] {epoch:03d} [Loss] {loss_str} [Metrics] {eval_metrics_str}\n"
 
@@ -115,6 +143,12 @@ def train(model, criterion, optimizer, lr_scheduler, train_dataset, val_dataset,
         shuffle=True,
         pin_memory=opt.pin_memory
     )
+
+    temp_model_inputs, _ = prepare_batch_inputs(next(iter(train_loader))[1], opt.device,
+                                                 non_blocking=opt.pin_memory)
+
+    tb_writer.add_graph(ModelWrapper(model),temp_model_inputs)
+
     prev_best_score = 0.
     es_cnt = 0
     # start_epoch = 0
