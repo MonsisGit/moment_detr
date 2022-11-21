@@ -18,6 +18,7 @@ from moment_detr.postprocessing_moment_detr import PostProcessorDETR
 from standalone_eval.eval import eval_submission
 from utils.basic_utils import save_jsonl, save_json
 from utils.temporal_nms import temporal_nms
+from cosine_annealing_warmup import CosineAnnealingWarmupRestarts
 
 import logging
 
@@ -200,7 +201,11 @@ def setup_model(opt):
 
     param_dicts = [{"params": [p for n, p in model.named_parameters() if p.requires_grad]}]
     optimizer = torch.optim.AdamW(param_dicts, lr=opt.lr, weight_decay=opt.wd)
-    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, opt.lr_drop)
+    if opt.scheduler=='cosnl_wrmp':
+        lr_scheduler = CosineAnnealingWarmupRestarts(optimizer, first_cycle_steps=10, cycle_mult=1.0,
+                                                     max_lr=1e-3, min_lr=1e-5, warmup_steps=4, gamma=0.5)
+    else:
+        lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, opt.lr_drop)
 
     if opt.resume is not None:
         logger.info(f"Load checkpoint from {opt.resume}")
