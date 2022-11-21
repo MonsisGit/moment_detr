@@ -71,29 +71,73 @@ def compute_mr_ap(submission, ground_truth, iou_thds=np.linspace(0.5, 0.95, 10),
 
 def compute_mr_r1(submission, ground_truth, iou_thds=np.linspace(0.5, 0.95, 10)):
     """If a predicted segment has IoU >= iou_thd with one of the 1st GT segment, we define it positive"""
+    iou_thds = [0.1,0.3,0.5]
+    top_ks = [1,5,10]
     iou_thds = [float(f"{e:.2f}") for e in iou_thds]
-    pred_qid2window = {d["qid"]: d["pred_relevant_windows"][0][:2] for d in submission}  # :2 rm scores
-    # gt_qid2window = {d["qid"]: d["relevant_windows"][0] for d in ground_truth}
-    gt_qid2window = {}
-    for d in ground_truth:
-        cur_gt_windows = d["relevant_windows"]
-        cur_qid = d["id"]
-        cur_max_iou_idx = 0
-        if len(cur_gt_windows) > 0:  # select the GT window that has the highest IoU
-            cur_ious = compute_temporal_iou_batch_cross(
-                np.array([pred_qid2window[cur_qid]]), np.array(d["relevant_windows"])
-            )[0]
-            cur_max_iou_idx = np.argmax(cur_ious)
-        gt_qid2window[cur_qid] = cur_gt_windows[cur_max_iou_idx]
+    pred_qid2window = dict()
+    iou_thd2recall_at_k = {}
+    for top_k in top_ks:
+        for s in submission:
+            pred_qid2window[s["qid"]] = [k[0:2] for k in s["pred_relevant_windows"][0:top_k]] # :2 rm scores
 
-    qids = list(pred_qid2window.keys())
-    pred_windows = np.array([pred_qid2window[k] for k in qids]).astype(float)
-    gt_windows = np.array([gt_qid2window[k] for k in qids]).astype(float)
-    pred_gt_iou = compute_temporal_iou_batch_paired(pred_windows, gt_windows)
-    iou_thd2recall_at_one = {}
-    for thd in iou_thds:
-        iou_thd2recall_at_one[str(thd)] = float(f"{np.mean(pred_gt_iou >= thd) * 100:.2f}")
-    return iou_thd2recall_at_one
+        #pred_qid2window = {d["qid"]: d["pred_relevant_windows"][0][:2] for d in submission}  # :2 rm scores
+        # gt_qid2window = {d["qid"]: d["relevant_windows"][0] for d in ground_truth}
+        gt_qid2window = {}
+        iou_thd2recall_at_d = list()
+        for d in ground_truth:
+            cur_gt_windows = d["relevant_windows"]
+            cur_qid = d["id"]
+            cur_max_iou_idx = 0
+            if len(cur_gt_windows) > 0:  # select the GT window that has the highest IoU
+                if len(pred_qid2window)>=top_k:
+                    curr_pred_qid2window = np.array(pred_qid2window[cur_qid])
+                    cur_ious = compute_temporal_iou_batch_cross(
+                        curr_pred_qid2window, np.array(d["relevant_windows"])
+                    )[0]
+                    iou_thd2recall_at_d.append(cur_ious)
+
+        for thd in iou_thds:
+            iou_thd2recall_at_k[f'{thd}@{top_k}'] = float(f"{np.mean([iou>=thd for iou in iou_thd2recall_at_d]) * 100:.2f}")
+
+                    #cur_max_iou_idx = np.argmax(cur_ious)
+            #gt_qid2window[cur_qid] = cur_gt_windows[cur_max_iou_idx]
+
+        # qids = list(pred_qid2window.keys())
+        # pred_windows = np.array([pred_qid2window[k] for k in qids]).astype(float)
+        # gt_windows = np.array([gt_qid2window[k] for k in qids]).astype(float)
+        #
+        # pred_gt_iou = compute_temporal_iou_batch_paired(pred_windows, gt_windows)
+        # iou_thd2recall_at_one = {}
+        # for thd in iou_thds:
+        #     iou_thd2recall_at_one[str(thd)] = float(f"{np.mean(pred_gt_iou >= thd) * 100:.2f}")
+    return iou_thd2recall_at_k
+
+
+# def compute_mr_r1(submission, ground_truth, iou_thds=np.linspace(0.5, 0.95, 10)):
+#     """If a predicted segment has IoU >= iou_thd with one of the 1st GT segment, we define it positive"""
+#     iou_thds = [float(f"{e:.2f}") for e in iou_thds]
+#     pred_qid2window = {d["qid"]: d["pred_relevant_windows"][0][:2] for d in submission}  # :2 rm scores
+#     # gt_qid2window = {d["qid"]: d["relevant_windows"][0] for d in ground_truth}
+#     gt_qid2window = {}
+#     for d in ground_truth:
+#         cur_gt_windows = d["relevant_windows"]
+#         cur_qid = d["id"]
+#         cur_max_iou_idx = 0
+#         if len(cur_gt_windows) > 0:  # select the GT window that has the highest IoU
+#             cur_ious = compute_temporal_iou_batch_cross(
+#                 np.array([pred_qid2window[cur_qid]]), np.array(d["relevant_windows"])
+#             )[0]
+#             cur_max_iou_idx = np.argmax(cur_ious)
+#         gt_qid2window[cur_qid] = cur_gt_windows[cur_max_iou_idx]
+#
+#     qids = list(pred_qid2window.keys())
+#     pred_windows = np.array([pred_qid2window[k] for k in qids]).astype(float)
+#     gt_windows = np.array([gt_qid2window[k] for k in qids]).astype(float)
+#     pred_gt_iou = compute_temporal_iou_batch_paired(pred_windows, gt_windows)
+#     iou_thd2recall_at_one = {}
+#     for thd in iou_thds:
+#         iou_thd2recall_at_one[str(thd)] = float(f"{np.mean(pred_gt_iou >= thd) * 100:.2f}")
+#     return iou_thd2recall_at_one
 
 
 def get_window_len(window):

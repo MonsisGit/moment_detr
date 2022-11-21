@@ -26,15 +26,15 @@ num_workers=8
 n_epoch=100
 lr=8e-4
 lr_drop=100
-clip_length=1
+clip_length=0.2
 max_q_l=32
-max_v_l=-1
-
+max_v_l=200
+sheduler=cosnl_wrmp
 ##set for results tracking!
 window_length=25.6
 sampling_mode=none
-fps=5
-eval_results_dir=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_lrd${lr_drop}_dr${data_ratio}_wl${window_length}_sm${sampling_mode}_fps${fps}_lws${lw_saliency}
+fps=1/${clip_length}
+eval_results_dir=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_lrd${lr_drop}_dr${data_ratio}_wl${window_length}_sm${sampling_mode}_fps${fps}_lws${lw_saliency}_${sheduler}
 
 
 PYTHONPATH=$PYTHONPATH:. python moment_detr/train.py \
@@ -63,5 +63,5 @@ PYTHONPATH=$PYTHONPATH:. python moment_detr/train.py \
 --max_q_l ${max_q_l} \
 --max_v_l ${max_v_l} \
 --resume /nfs/data3/goldhofer/mad_dataset/momentDETR_results/CLIP_L14_bsz256_lr8e-4_lrd100_dr1_wl25.6_smnone_fps5_lws4/model_best.ckpt \
-
+--scheduler=${sheduler}
 ${@:1}

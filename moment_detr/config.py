@@ -48,7 +48,7 @@ class BaseOptions(object):
         parser.add_argument("--max_es_cnt", type=int, default=200,
                             help="number of epochs to early stop, use -1 to disable early stop")
         parser.add_argument("--bsz", type=int, default=32, help="mini-batch size")
-        parser.add_argument("--eval_bsz", type=int, default=100,
+        parser.add_argument("--eval_bsz", type=int, default=128,
                             help="mini-batch size at inference, for query")
         parser.add_argument("--grad_clip", type=float, default=0.1, help="perform gradient clip, -1: disable")
         parser.add_argument("--eval_untrained", action="store_true", help="Evaluate on un-trained model")
@@ -62,7 +62,7 @@ class BaseOptions(object):
         # Data config
         parser.add_argument("--max_q_l", type=int, default=200)
         parser.add_argument("--max_v_l", type=int, default=500)
-        parser.add_argument("--clip_length", type=int, default=2)
+        parser.add_argument("--clip_length", type=float, default=2)
         parser.add_argument("--max_windows", type=int, default=5)
 
         parser.add_argument("--train_path", type=str, default=None)
@@ -185,6 +185,7 @@ class BaseOptions(object):
                                "max_pred_l", "min_pred_l",
                                "resume", "resume_all", "no_sort_results"]:
                     setattr(opt, arg, saved_options[arg])
+                    #TODO fix
             # opt.no_core_driver = True
             if opt.eval_results_dir is not None:
                 opt.results_dir = opt.eval_results_dir
