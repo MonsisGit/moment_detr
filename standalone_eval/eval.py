@@ -149,6 +149,7 @@ def eval_moment_retrieval(submission, ground_truth, verbose=True):
                   f"{100 * len(_ground_truth) / len(ground_truth):.2f} examples.")
             iou_thd2average_precision = compute_mr_ap(_submission, _ground_truth, num_workers=8, chunksize=50)
             iou_thd2recall_at_one = compute_mr_r1(_submission, _ground_truth)
+            #TODO compute mr_rk
             ret_metrics[name] = {"MR-mAP": iou_thd2average_precision, "MR-R1": iou_thd2recall_at_one}
             if verbose:
                 print(f"[eval_moment_retrieval] [{name}] {time.time() - start_time:.2f} seconds")
@@ -302,7 +303,7 @@ def eval_submission(submission, ground_truth, verbose=True, match_number=True):
     else:  # only leave the items that exists in both submission and ground_truth
         shared_qids = pred_qids.intersection(gt_qids)
         submission = [e for e in submission if e["qid"] in shared_qids]
-        ground_truth = [e for e in ground_truth if e["qid"] in shared_qids]
+        ground_truth = [e for e in ground_truth if e["id"] in shared_qids]
 
     eval_metrics = {}
     eval_metrics_brief = OrderedDict()

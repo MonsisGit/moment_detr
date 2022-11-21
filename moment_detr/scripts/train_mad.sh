@@ -4,35 +4,37 @@ v_feat_types=clip
 t_feat_type=clip 
 exp_id=exp
 
-######## data paths
+######## paths
 root=/nfs/data3/goldhofer/mad_dataset/
-train_path=${root}annotations/MAD_train_SMfixed_FPS1_CL150_L2True.json
-eval_path=${root}annotations/MAD_val_SMfixed_FPS1_CL150_L2True.json
+train_path=${root}annotations/MAD_train_SMNone_FPS5_CL25.6_L2True.json
+eval_path=${root}annotations/MAD_val_SMNone_FPS5_CL25.6_L2True.json
 results_root=${root}momentDETR_results
-
-eval_split_name=val
-
-######## setup video+text features
-v_feat_dirs=(/nfs/data3/goldhofer/mad_dataset/clip_frame_features_150_1FPS/)
-v_feat_dim=768
+v_feat_dirs=(/nfs/data3/goldhofer/mad_dataset/clip_frame_features_25.6_5FPS/)
 t_feat_dir=/nfs/data3/goldhofer/mad_dataset/
-t_feat_dim=768
+lang_feat_path=CLIP_L14_language_tokens_features.h5
+
+
 #### training
-bsz=128
-cuda_visible_devices=0
-lw_saliency=0
+eval_split_name=val
+v_feat_dim=768
+t_feat_dim=768
+bsz=256
+cuda_visible_devices=2
+lw_saliency=4
 data_ratio=1
 num_workers=8
 n_epoch=100
-lr=4e-4
-lr_drop=20
-lang_feat_path=CLIP_L14_language_tokens_features.h5
+lr=8e-4
+lr_drop=100
+clip_length=1
+max_q_l=-1
+max_v_l=-1
 
 ##set for results tracking!
-clip_length=150
-sampling_mode=fixed
-fps=1
-eval_results_dir=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_lrd${lr_drop}_dr${data_ratio}_cl${clip_length}_sm${sampling_mode}_fps${fps}
+clip_length=25.6
+sampling_mode=none
+fps=5
+eval_results_dir=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_lrd${lr_drop}_dr${data_ratio}_cl${clip_length}_sm${sampling_mode}_fps${fps}_lws${lw_saliency}
 
 
 PYTHONPATH=$PYTHONPATH:. python moment_detr/train.py \
@@ -57,5 +59,10 @@ PYTHONPATH=$PYTHONPATH:. python moment_detr/train.py \
 --lr ${lr} \
 --lr_drop ${lr_drop} \
 --lang_feat_path ${lang_feat_path} \
---no_norm_vfeat
+--no_norm_vfeat \
+--resume /nfs/data3/goldhofer/mad_dataset/momentDETR_results/CLIP_L14_bsz256_lr8e-4_lrd100_dr1_cl25.6_smnone_fps5/model_best.ckpt \
+--clip_length ${clip_length} \
+--max_q_l ${max_q_l} \
+--max_v_l ${max_v_l} \
+
 ${@:1}
