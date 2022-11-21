@@ -52,7 +52,6 @@ PYTHONPATH=$PYTHONPATH:. python moment_detr/train.py \
 --num_workers ${num_workers} \
 --n_epoch ${n_epoch} \
 --exp_id ${exp_id} \
---cuda_visible_devices ${cuda_visible_devices} \
 --eval_results_dir ${eval_results_dir} \
 --lw_saliency ${lw_saliency} \
 --data_ratio ${data_ratio} \

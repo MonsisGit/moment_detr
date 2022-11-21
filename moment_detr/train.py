@@ -286,7 +286,7 @@ def start_training():
 
     model, criterion, optimizer, lr_scheduler = setup_model(opt)
     logger.info(f"Model {model}")
-    count_parameters(model)
+    # count_parameters(model)
     logger.info("Start Training...")
     train(model, criterion, optimizer, lr_scheduler, train_dataset, eval_dataset, opt)
     return opt.ckpt_filepath.replace(".ckpt", "_best.ckpt"), opt.eval_split_name, opt.eval_path, opt.debug
