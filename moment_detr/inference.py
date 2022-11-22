@@ -152,8 +152,8 @@ def compute_mr_results(model, eval_loader, opt, epoch_i=None, criterion=None, tb
 
     #TODO set clip length here!!
     try:
-        max_ts_val = int(np.ceil(float(opt.v_feat_dirs[0].split("_")[-2])))
-        assert type(max_ts_val) == int
+        max_ts_val = float(opt.v_feat_dirs[0].split("_")[-2])
+        assert type(max_ts_val) == float
         assert max_ts_val>0
     except Exception as e:
         print(e)

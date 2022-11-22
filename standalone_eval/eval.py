@@ -18,6 +18,7 @@ def compute_average_precision_detection_wrapper(
 
 def compute_mr_ap(submission, ground_truth, iou_thds=np.linspace(0.5, 0.95, 10),
                   max_gt_windows=None, max_pred_windows=10, num_workers=8, chunksize=50):
+    #TODO look at ap
     iou_thds = [float(f"{e:.2f}") for e in iou_thds]
     pred_qid2data = defaultdict(list)
     for d in submission:

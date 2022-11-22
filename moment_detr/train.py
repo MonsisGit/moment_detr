@@ -144,11 +144,6 @@ def train(model, criterion, optimizer, lr_scheduler, train_dataset, val_dataset,
         pin_memory=opt.pin_memory
     )
 
-    temp_model_inputs, _ = prepare_batch_inputs(next(iter(train_loader))[1], opt.device,
-                                                 non_blocking=opt.pin_memory)
-
-    tb_writer.add_graph(ModelWrapper(model),temp_model_inputs)
-
     prev_best_score = 0.
     es_cnt = 0
     # start_epoch = 0
@@ -184,7 +179,7 @@ def train(model, criterion, optimizer, lr_scheduler, train_dataset, val_dataset,
             for k, v in metrics["brief"].items():
                 tb_writer.add_scalar(f"Eval/{k}", float(v), epoch_i+1)
 
-            stop_score = metrics["brief"]["MR-mAP"]
+            stop_score = metrics["brief"]["MR-R1@0.5"]
             if stop_score > prev_best_score:
                 es_cnt = 0
                 prev_best_score = stop_score

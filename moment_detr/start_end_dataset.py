@@ -124,6 +124,7 @@ class StartEndDataset(Dataset):
             pos_clip_indices = [gt_st, gt_st]
 
         neg_pool = list(range(0, gt_st)) + list(range(gt_ed + 1, ctx_l))
+        #TODO fix this
         if len(neg_pool) == 0:
             neg_clip_indices = [gt_st, gt_ed]
         else:
