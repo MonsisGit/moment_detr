@@ -71,16 +71,16 @@ def compute_mr_ap(submission, ground_truth, iou_thds=np.linspace(0.5, 0.95, 10),
 
 def compute_mr_r1(submission, ground_truth, iou_thds=np.linspace(0.5, 0.95, 10)):
     """If a predicted segment has IoU >= iou_thd with one of the 1st GT segment, we define it positive"""
-    iou_thds = [0.1,0.3,0.5]
-    top_ks = [1,5,10]
+    iou_thds = [0.1, 0.3, 0.5]
+    top_ks = [1, 5, 10]
     iou_thds = [float(f"{e:.2f}") for e in iou_thds]
     pred_qid2window = dict()
     iou_thd2recall_at_k = {}
     for top_k in top_ks:
         for s in submission:
-            pred_qid2window[s["qid"]] = [k[0:2] for k in s["pred_relevant_windows"][0:top_k]] # :2 rm scores
+            pred_qid2window[s["qid"]] = [k[0:2] for k in s["pred_relevant_windows"][0:top_k]]  # :2 rm scores
 
-        #pred_qid2window = {d["qid"]: d["pred_relevant_windows"][0][:2] for d in submission}  # :2 rm scores
+        # pred_qid2window = {d["qid"]: d["pred_relevant_windows"][0][:2] for d in submission}  # :2 rm scores
         # gt_qid2window = {d["qid"]: d["relevant_windows"][0] for d in ground_truth}
         gt_qid2window = {}
         iou_thd2recall_at_d = list()
@@ -89,7 +89,7 @@ def compute_mr_r1(submission, ground_truth, iou_thds=np.linspace(0.5, 0.95, 10))
             cur_qid = d["id"]
             cur_max_iou_idx = 0
             if len(cur_gt_windows) > 0:  # select the GT window that has the highest IoU
-                if len(pred_qid2window)>=top_k:
+                if len(pred_qid2window) >= top_k:
                     curr_pred_qid2window = np.array(pred_qid2window[cur_qid])
                     cur_ious = compute_temporal_iou_batch_cross(
                         curr_pred_qid2window, np.array(d["relevant_windows"])
@@ -97,10 +97,11 @@ def compute_mr_r1(submission, ground_truth, iou_thds=np.linspace(0.5, 0.95, 10))
                     iou_thd2recall_at_d.append(cur_ious)
 
         for thd in iou_thds:
-            iou_thd2recall_at_k[f'{thd}@{top_k}'] = float(f"{np.mean([iou>=thd for iou in iou_thd2recall_at_d]) * 100:.2f}")
+            iou_thd2recall_at_k[f'{thd}@{top_k}'] = float(
+                f"{np.mean([iou >= thd for iou in iou_thd2recall_at_d]) * 100:.2f}")
 
-                    #cur_max_iou_idx = np.argmax(cur_ious)
-            #gt_qid2window[cur_qid] = cur_gt_windows[cur_max_iou_idx]
+            # cur_max_iou_idx = np.argmax(cur_ious)
+            # gt_qid2window[cur_qid] = cur_gt_windows[cur_max_iou_idx]
 
         # qids = list(pred_qid2window.keys())
         # pred_windows = np.array([pred_qid2window[k] for k in qids]).astype(float)
@@ -192,26 +193,35 @@ def eval_moment_retrieval(submission, ground_truth, verbose=True):
             print(f"{name}: {l_range}, {len(_ground_truth)}/{len(ground_truth)}="
                   f"{100 * len(_ground_truth) / len(ground_truth):.2f} examples.")
             iou_thd2average_precision = compute_mr_ap(_submission, _ground_truth, num_workers=8, chunksize=50)
-            iou_thd2recall_at_one = compute_mr_r1(_submission, _ground_truth)
-            #TODO compute mr_rk
-            ret_metrics[name] = {"MR-mAP": iou_thd2average_precision, "MR-R1": iou_thd2recall_at_one}
+            iou_thd2recall_at_k = compute_mr_r1(_submission, _ground_truth)
+            # TODO MR-RK
+            ret_metrics[name] = {"MR-mAP": iou_thd2average_precision, "MR-RK": iou_thd2recall_at_k}
             if verbose:
                 print(f"[eval_moment_retrieval] [{name}] {time.time() - start_time:.2f} seconds")
         else:
-            placeholder_scores = {"0.5": -1,
-                                  "0.55": -1,
-                                  "0.6": -1,
-                                  "0.65": -1,
-                                  "0.70": -1,
-                                  "0.75": -1,
-                                  "0.8": -1,
-                                  "0.85": -1,
-                                  "0.9": -1,
-                                  "0.95": -1,
-                                  }
-            placeholder_scores_w_average = placeholder_scores
-            placeholder_scores_w_average["average"] = -1
-            ret_metrics[name] = {"MR-mAP": placeholder_scores, "MR-R1": placeholder_scores_w_average}
+            placeholder_scores_mAP = {"0.5": -1,
+                                      "0.55": -1,
+                                      "0.6": -1,
+                                      "0.65": -1,
+                                      "0.70": -1,
+                                      "0.75": -1,
+                                      "0.8": -1,
+                                      "0.85": -1,
+                                      "0.9": -1,
+                                      "0.95": -1,
+                                      "average": -1,
+                                      }
+            placeholder_scores_mr = {'0.1@1': -1,
+                                     '0.3@1': -1,
+                                     '0.5@1': -1,
+                                     '0.1@5': -1,
+                                     '0.3@5': -1,
+                                     '0.5@5': -1,
+                                     '0.1@10': -1,
+                                     '0.3@10': -1,
+                                     '0.5@10': -1, }
+
+            ret_metrics[name] = {"MR-mAP": placeholder_scores_mAP, "MR-RK": placeholder_scores_mr}
     return ret_metrics
 
 
@@ -276,10 +286,10 @@ def mk_gt_scores(gt_data, clip_length=2):
     """gt_data, dict, """
     num_clips = int(gt_data["duration"] / clip_length)
     saliency_scores_full_video = np.zeros((num_clips, 3))
-    #relevant_clip_ids = np.array(gt_data["relevant_clip_ids"])  # (#relevant_clip_ids, )
-    #relevant_clip_ids = np.zeros(saliency_scores_full_video.shape[0])
-    #saliency_scores_relevant_clips = np.array(gt_data["saliency_scores"])  # (#relevant_clip_ids, 3)
-    #saliency_scores_full_video[relevant_clip_ids] = saliency_scores_relevant_clips
+    # relevant_clip_ids = np.array(gt_data["relevant_clip_ids"])  # (#relevant_clip_ids, )
+    # relevant_clip_ids = np.zeros(saliency_scores_full_video.shape[0])
+    # saliency_scores_relevant_clips = np.array(gt_data["saliency_scores"])  # (#relevant_clip_ids, 3)
+    # saliency_scores_full_video[relevant_clip_ids] = saliency_scores_relevant_clips
     return saliency_scores_full_video  # (#clips_in_video, 3)  the scores are in range [0, 4]
 
 
@@ -359,16 +369,15 @@ def eval_submission(submission, ground_truth, verbose=True, match_number=True):
             "MR-full-mAP": moment_ret_scores["full"]["MR-mAP"]["average"],
             "MR-full-mAP@0.5": moment_ret_scores["full"]["MR-mAP"]["0.5"],
             "MR-full-mAP@0.75": moment_ret_scores["full"]["MR-mAP"]["0.75"],
-            "MR-short-mAP": moment_ret_scores["short"]["MR-mAP"]["average"],
-            "MR-middle-mAP": moment_ret_scores["middle"]["MR-mAP"]["average"],
-            "MR-long-mAP": moment_ret_scores["long"]["MR-mAP"]["average"],
-            "MR-full-R1@0.5": moment_ret_scores["full"]["MR-R1"]["0.5"],
-            "MR-full-R1@0.7": moment_ret_scores["full"]["MR-R1"]["0.7"],
+
+            "MR-full-R1@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@1"],
+            "MR-full-R5@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@5"],
         }
         eval_metrics_brief.update(
             sorted([(k, v) for k, v in moment_ret_scores_brief.items()], key=lambda x: x[0]))
 
-    if "pred_saliency_scores" in submission[0]:
+    #TODO no highlight score calculation
+    if "pred_saliency_scores" in submission[0] and False:
         highlight_det_scores = eval_highlight(
             submission, ground_truth, verbose=verbose)
         eval_metrics.update(highlight_det_scores)

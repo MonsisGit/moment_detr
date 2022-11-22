@@ -124,7 +124,10 @@ class StartEndDataset(Dataset):
             pos_clip_indices = [gt_st, gt_st]
 
         neg_pool = list(range(0, gt_st)) + list(range(gt_ed + 1, ctx_l))
-        neg_clip_indices = random.sample(neg_pool, k=max_n)
+        if len(neg_pool) == 0:
+            neg_clip_indices = [gt_st, gt_ed]
+        else:
+            neg_clip_indices = random.sample(neg_pool, k=max_n)
         return pos_clip_indices, neg_clip_indices
 
     def get_saliency_labels(self, rel_clip_ids, scores, ctx_l, max_n=1, add_easy_negative=True):
@@ -172,7 +175,7 @@ class StartEndDataset(Dataset):
             random.shuffle(windows)
             windows = windows[:self.max_windows]
         if self.span_loss_type == "l1":
-            windows = [torch.Tensor(windows) / (ctx_l * self.clip_len)]  # normalized windows in xx
+            windows = torch.Tensor(windows) / (ctx_l * self.clip_len)  # normalized windows in xx
             windows = span_xx_to_cxw(windows)  # normalized windows in cxw
         elif self.span_loss_type == "ce":
             windows = torch.Tensor([
@@ -218,11 +221,9 @@ class StartEndDataset(Dataset):
             _feat_path = join(_feat_dir, f"{vid}.npz")
             try:
                 _feat = np.load(_feat_path)["features"].astype(np.float32)[:self.max_v_l]
-            except Exception:
-                print(f'File: {_feat_path}')
-                traceback.print_tb()
-                _feat = np.zeros(shape=(128,768))
-
+            except Exception as e:
+                print(f'{e}\nFile: {_feat_path}')
+                _feat = np.zeros(shape=(128, 768))
 
             if self.normalize_v:
                 _feat = l2_normalize_np_array(_feat)
