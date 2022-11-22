@@ -20,7 +20,6 @@ v_feat_dim=768
 t_feat_dim=768
 bsz=256
 cuda_visible_devices=0
-lw_saliency=4
 data_ratio=1
 num_workers=8
 n_epoch=100
@@ -28,13 +27,18 @@ lr=8e-4
 lr_drop=10
 clip_length=0.2
 max_q_l=32
-max_v_l=200
+max_v_l=128
 sheduler=step_lr
+
+## Losses
+lw_saliency=1
+set_cost_class=0   #"Class coefficient in the matching cost"
+label_loss_coef=0
 ##set for results tracking!
 window_length=25.6
 sampling_mode=none
 fps=5
-eval_results_dir=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_lrd${lr_drop}_dr${data_ratio}_wl${window_length}_sm${sampling_mode}_fps${fps}_lws${lw_saliency}_${sheduler}
+eval_results_dir=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_lrd${lr_drop}_dr${data_ratio}_wl${window_length}_sm${sampling_mode}_fps${fps}_lws${lw_saliency}_lloss${label_loss_coef}_${sheduler}
 
 
 PYTHONPATH=$PYTHONPATH:. python moment_detr/train.py \
@@ -62,5 +66,7 @@ PYTHONPATH=$PYTHONPATH:. python moment_detr/train.py \
 --clip_length ${clip_length} \
 --max_q_l ${max_q_l} \
 --max_v_l ${max_v_l} \
---scheduler=${sheduler}
+--scheduler=${sheduler} \
+--label_loss_coef ${label_loss_coef} \
+--set_cost_class ${set_cost_class} \
 ${@:1}

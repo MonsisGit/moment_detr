@@ -83,7 +83,7 @@ def compute_mr_r1(submission, ground_truth, iou_thds=np.linspace(0.5, 0.95, 10))
         # pred_qid2window = {d["qid"]: d["pred_relevant_windows"][0][:2] for d in submission}  # :2 rm scores
         # gt_qid2window = {d["qid"]: d["relevant_windows"][0] for d in ground_truth}
         gt_qid2window = {}
-        iou_thd2recall_at_d = list()
+        iou_thd2recall_at_d = []
         for d in ground_truth:
             cur_gt_windows = d["relevant_windows"]
             cur_qid = d["id"]
@@ -366,12 +366,13 @@ def eval_submission(submission, ground_truth, verbose=True, match_number=True):
             submission, ground_truth, verbose=verbose)
         eval_metrics.update(moment_ret_scores)
         moment_ret_scores_brief = {
-            "MR-full-mAP": moment_ret_scores["full"]["MR-mAP"]["average"],
-            "MR-full-mAP@0.5": moment_ret_scores["full"]["MR-mAP"]["0.5"],
-            "MR-full-mAP@0.75": moment_ret_scores["full"]["MR-mAP"]["0.75"],
+            "MR-mAP": moment_ret_scores["full"]["MR-mAP"]["average"],
+            "MR-mAP@0.5": moment_ret_scores["full"]["MR-mAP"]["0.5"],
+            "MR-mAP@0.75": moment_ret_scores["full"]["MR-mAP"]["0.75"],
 
-            "MR-full-R1@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@1"],
-            "MR-full-R5@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@5"],
+            "MR-R1@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@1"],
+            "MR-R5@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@5"],
+            "MR-R10@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@10"],
         }
         eval_metrics_brief.update(
             sorted([(k, v) for k, v in moment_ret_scores_brief.items()], key=lambda x: x[0]))

@@ -184,7 +184,7 @@ def train(model, criterion, optimizer, lr_scheduler, train_dataset, val_dataset,
             for k, v in metrics["brief"].items():
                 tb_writer.add_scalar(f"Eval/{k}", float(v), epoch_i+1)
 
-            stop_score = metrics["brief"]["MR-full-mAP"]
+            stop_score = metrics["brief"]["MR-mAP"]
             if stop_score > prev_best_score:
                 es_cnt = 0
                 prev_best_score = stop_score
