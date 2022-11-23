@@ -57,17 +57,23 @@ class MomentDETR(nn.Module):
         # self.background_thd = background_thd
         self.query_embed = nn.Embedding(num_queries, hidden_dim)
         relu_args = [True] * 3
-        relu_args[n_input_proj-1] = False
+        relu_args[n_input_proj - 1] = False
         self.input_txt_proj = nn.Sequential(*[
-            LinearLayer(txt_dim, hidden_dim, layer_norm=True, dropout=input_dropout, relu=relu_args[0]),
-            LinearLayer(hidden_dim, hidden_dim, layer_norm=True, dropout=input_dropout, relu=relu_args[1]),
-            LinearLayer(hidden_dim, hidden_dim, layer_norm=True, dropout=input_dropout, relu=relu_args[2])
-        ][:n_input_proj])
+                                                 LinearLayer(txt_dim, hidden_dim, layer_norm=True,
+                                                             dropout=input_dropout, relu=relu_args[0]),
+                                                 LinearLayer(hidden_dim, hidden_dim, layer_norm=True,
+                                                             dropout=input_dropout, relu=relu_args[1]),
+                                                 LinearLayer(hidden_dim, hidden_dim, layer_norm=True,
+                                                             dropout=input_dropout, relu=relu_args[2])
+                                             ][:n_input_proj])
         self.input_vid_proj = nn.Sequential(*[
-            LinearLayer(vid_dim, hidden_dim, layer_norm=True, dropout=input_dropout, relu=relu_args[0]),
-            LinearLayer(hidden_dim, hidden_dim, layer_norm=True, dropout=input_dropout, relu=relu_args[1]),
-            LinearLayer(hidden_dim, hidden_dim, layer_norm=True, dropout=input_dropout, relu=relu_args[2])
-        ][:n_input_proj])
+                                                 LinearLayer(vid_dim, hidden_dim, layer_norm=True,
+                                                             dropout=input_dropout, relu=relu_args[0]),
+                                                 LinearLayer(hidden_dim, hidden_dim, layer_norm=True,
+                                                             dropout=input_dropout, relu=relu_args[1]),
+                                                 LinearLayer(hidden_dim, hidden_dim, layer_norm=True,
+                                                             dropout=input_dropout, relu=relu_args[2])
+                                             ][:n_input_proj])
         self.contrastive_align_loss = contrastive_align_loss
         if contrastive_align_loss:
             self.contrastive_align_projection_query = nn.Linear(hidden_dim, contrastive_hdim)
@@ -242,6 +248,8 @@ class SetCriterion(nn.Module):
         saliency_scores = outputs["saliency_scores"]  # (N, L)
         pos_indices = targets["saliency_pos_labels"]  # (N, #pairs)
         neg_indices = targets["saliency_neg_labels"]  # (N, #pairs)
+        if pos_indices[0][0] == -1 or neg_indices[0][0] == -1:
+            return {"loss_saliency": 0}
         num_pairs = pos_indices.shape[1]  # typically 2 or 4
         batch_indices = torch.arange(len(saliency_scores)).to(saliency_scores.device)
         pos_scores = torch.stack(
@@ -249,7 +257,7 @@ class SetCriterion(nn.Module):
         neg_scores = torch.stack(
             [saliency_scores[batch_indices, neg_indices[:, col_idx]] for col_idx in range(num_pairs)], dim=1)
         loss_saliency = torch.clamp(self.saliency_margin + neg_scores - pos_scores, min=0).sum() \
-            / (len(pos_scores) * num_pairs) * 2  # * 2 to keep the loss the same scale
+                        / (len(pos_scores) * num_pairs) * 2  # * 2 to keep the loss the same scale
         return {"loss_saliency": loss_saliency}
 
     def loss_contrastive_align(self, outputs, targets, indices, log=True):
@@ -326,6 +334,14 @@ class SetCriterion(nn.Module):
         # Retrieve the matching between the outputs of the last layer and the targets
         # list(tuples), each tuple is (pred_span_indices, tgt_span_indices)
         indices = self.matcher(outputs_without_aux, targets)
+        '''
+        Returns:
+            A list of size batch_size, containing tuples of (index_i, index_j) where:
+                - index_i is the indices of the selected predictions (in order)
+                - index_j is the indices of the corresponding selected targets (in order)
+            For each batch element, it holds:
+                len(index_i) = len(index_j) = min(num_queries, num_target_spans)
+        '''
 
         # Compute all the requested losses
         losses = {}
@@ -434,7 +450,7 @@ def build_model(args):
     losses = ['spans', 'labels', 'saliency']
     if args.contrastive_align_loss:
         losses += ["contrastive_align"]
-    #TODO anschauen
+    # TODO anschauen
     criterion = SetCriterion(
         matcher=matcher, weight_dict=weight_dict, losses=losses,
         eos_coef=args.eos_coef, temperature=args.temperature,

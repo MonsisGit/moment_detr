@@ -415,5 +415,66 @@ def eval_main():
         f.write(json.dumps(results, indent=4))
 
 
+#TODO integrate this
+#from https://github.com/Soldelli/MAD/blob/main/baselines/VLG-Net/lib/engine/evaluation.py
+def evaluate(dataset, predictions, nms_thresh, cfg, moments_indexes,
+            recall_metrics=(1,5,10,50,100),
+            iou_metrics=(0.1,0.3,0.5,0.7),
+            summary_writer=None):
+
+    """evaluate dataset using different methods based on dataset type.
+    Args:
+    Returns:
+    """
+    dataset_name = dataset.__class__.__name__
+    logger = logging.getLogger("vlg.inference")
+    logger.info("Performing {} evaluation (Size: {}).".format(dataset_name, len(dataset)))
+
+    num_recall_metrics, num_iou_metrics = len(recall_metrics), len(iou_metrics)
+    recall_metrics = torch.tensor(recall_metrics)
+    iou_metrics    = torch.tensor(iou_metrics)
+
+    def _eval(dataset, idx, scores, moments_indexes):
+        # Compute moment candidates and their scores
+        stride = dataset.get_relative_stride()
+        num_windows = dataset.get_number_of_windows(idx)
+        candidates  = torch.cat([moments_indexes + i * stride for i in range(num_windows)])
+
+        # Sort and apply nms
+        relative_fps = dataset.get_relative_fps()
+        moments = nms(candidates, scores, topk=recall_metrics[-1],
+                        relative_fps=relative_fps, thresh=nms_thresh)
+
+        # Compute performance
+        recall_x_iou_idx = torch.zeros(num_recall_metrics, num_iou_metrics)
+        gt_moment = dataset.get_moment(idx)
+        mious = iou(moments, gt_moment)
+        if len(mious)< recall_metrics[-1]:
+            mious = F.pad(mious, (0,recall_metrics[-1] - len(mious) ), "constant", 0.0)
+        bools = mious[:,None].expand(recall_metrics[-1], num_iou_metrics) >= iou_metrics
+        for i, r in enumerate(recall_metrics):
+            recall_x_iou_idx[i] += bools[:r].any(dim=0)
+
+        return recall_x_iou_idx
+
+    recall_x_iou_dict = {}
+    num_predictions = len(predictions)
+    for idx, pred_scores in tqdm(enumerate(predictions)):
+        recall_x_iou_dict[idx] = _eval(dataset, idx, pred_scores, moments_indexes)
+    recall_x_iou = torch.stack(list(recall_x_iou_dict.values()),dim=0).sum(dim=0)
+
+    logger.info('{} is recall shape, should be [num_recall_metrics, num_iou_metrics]'.format(recall_x_iou.shape))
+    recall_x_iou /= num_predictions
+
+    for i in range(num_recall_metrics):
+        for j in range(num_iou_metrics):
+            name = f'R@{recall_metrics[i]:.0f}-IoU={iou_metrics[j]:.1f}'
+            summary_writer.add_scalar(name,recall_x_iou[i,j]*100)
+
+    pretty_print_results(recall_x_iou, recall_metrics, iou_metrics, logger)
+    save_results_evaluation(recall_x_iou, recall_metrics, iou_metrics, cfg)
+    return torch.tensor(recall_x_iou)
+
+
 if __name__ == '__main__':
     eval_main()

@@ -124,9 +124,10 @@ class StartEndDataset(Dataset):
             pos_clip_indices = [gt_st, gt_st]
 
         neg_pool = list(range(0, gt_st)) + list(range(gt_ed + 1, ctx_l))
-        #TODO fix this
+
+        # this sets the saliency score to zero, since no negative window exists
         if len(neg_pool) == 0:
-            neg_clip_indices = [gt_st, gt_ed]
+            return [-1, -1], [-1, -1]
         else:
             neg_clip_indices = random.sample(neg_pool, k=max_n)
         return pos_clip_indices, neg_clip_indices
