@@ -10,6 +10,8 @@ import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
 from torch.utils.data import DataLoader
 
+from ignite.handlers.param_scheduler import create_lr_scheduler_with_warmup
+
 from moment_detr.config import TestOptions
 from moment_detr.model import build_model
 from moment_detr.span_utils import span_cxw_to_xx
@@ -150,15 +152,15 @@ def compute_mr_results(model, eval_loader, opt, epoch_i=None, criterion=None, tb
         for k, v in loss_meters.items():
             tb_writer.add_scalar("Eval/{}".format(k), v.avg, epoch_i + 1)
 
-    #TODO set clip length here!!
+    # TODO set clip length here!!
     try:
         max_ts_val = float(opt.v_feat_dirs[0].split("_")[-2])
         assert type(max_ts_val) == float
-        assert max_ts_val>0
+        assert max_ts_val > 0
     except Exception as e:
         print(e)
         print("max_ts_value for PostProcessor set to 180")
-        max_ts_val=180
+        max_ts_val = 180
 
     post_processor = PostProcessorDETR(
         clip_length=opt.clip_length, min_ts_val=0, max_ts_val=max_ts_val,
@@ -171,7 +173,8 @@ def compute_mr_results(model, eval_loader, opt, epoch_i=None, criterion=None, tb
 
 def get_eval_res(model, eval_loader, opt, epoch_i, criterion, tb_writer):
     """compute and save query and video proposal embeddings"""
-    eval_res, eval_loss_meters = compute_mr_results(model, eval_loader, opt, epoch_i, criterion, tb_writer)  # list(dict)
+    eval_res, eval_loss_meters = compute_mr_results(model, eval_loader, opt, epoch_i, criterion,
+                                                    tb_writer)  # list(dict)
     return eval_res, eval_loss_meters
 
 
@@ -211,11 +214,17 @@ def setup_model(opt):
 
     param_dicts = [{"params": [p for n, p in model.named_parameters() if p.requires_grad]}]
     optimizer = torch.optim.AdamW(param_dicts, lr=opt.lr, weight_decay=opt.wd)
-    if opt.scheduler=='cosnl_wrmp':
+    if opt.scheduler == 'cosnl_wrmp':
         lr_scheduler = CosineAnnealingWarmupRestarts(optimizer, first_cycle_steps=10, cycle_mult=1.0,
                                                      max_lr=1e-3, min_lr=1e-5, warmup_steps=4, gamma=0.5)
+    elif opt.scheduler == 'step_lr_warmup':
+        step_lr = torch.optim.lr_scheduler.StepLR(optimizer, opt.lr_drop, gamma=0.5)
+        lr_scheduler = create_lr_scheduler_with_warmup(step_lr,
+                                                       warmup_start_value=0.0,
+                                                       warmup_end_value=0.1,
+                                                       warmup_duration=3)
     else:
-        lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, opt.lr_drop,gamma=0.5)
+        lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, opt.lr_drop, gamma=0.5)
 
     if opt.resume is not None:
         logger.info(f"Load checkpoint from {opt.resume}")
@@ -225,7 +234,7 @@ def setup_model(opt):
             optimizer.load_state_dict(checkpoint['optimizer'])
             lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
             opt.start_epoch = checkpoint['epoch'] + 1
-        #logger.info(f"Loaded model saved at epoch {checkpoint['epoch']} from checkpoint: {opt.resume}")
+        # logger.info(f"Loaded model saved at epoch {checkpoint['epoch']} from checkpoint: {opt.resume}")
     else:
         logger.warning("If you intend to evaluate the model, please specify --resume with ckpt path")
 

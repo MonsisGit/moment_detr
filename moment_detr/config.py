@@ -152,7 +152,7 @@ class BaseOptions(object):
         parser.add_argument("--sampling_mode", type=str, default="fixed",
                                  help="Available Frame sampling modes are: fixed, random, pooling")
         parser.add_argument("--lang_feat_path", type=str, default="CLIP_L14_language_tokens_features.h5")
-        parser.add_argument("--scheduler", type=str, default="step_lr", choices=['step_lr', 'cosnl_wrmp'])
+        parser.add_argument("--scheduler", type=str, default="step_lr", choices=['step_lr', 'cosnl_wrmp','step_lr_warmup'])
 
         self.parser = parser
 
