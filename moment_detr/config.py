@@ -45,7 +45,7 @@ class BaseOptions(object):
         parser.add_argument("--lr_drop", type=int, default=400, help="drop learning rate to 1/10 every lr_drop epochs")
         parser.add_argument("--wd", type=float, default=1e-4, help="weight decay")
         parser.add_argument("--n_epoch", type=int, default=200, help="number of epochs to run")
-        parser.add_argument("--max_es_cnt", type=int, default=200,
+        parser.add_argument("--max_es_cnt", type=int, default=50,
                             help="number of epochs to early stop, use -1 to disable early stop")
         parser.add_argument("--bsz", type=int, default=32, help="mini-batch size")
         parser.add_argument("--eval_bsz", type=int, default=128,

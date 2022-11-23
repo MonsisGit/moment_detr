@@ -10,6 +10,7 @@ from standalone_eval.utils import compute_average_precision_detection, \
 import torch
 import torch.nn.functional as F
 
+
 def compute_average_precision_detection_wrapper(
         input_triple, tiou_thresholds=np.linspace(0.5, 0.95, 10)):
     qid, ground_truth, prediction = input_triple
@@ -20,7 +21,7 @@ def compute_average_precision_detection_wrapper(
 
 def compute_mr_ap(submission, ground_truth, iou_thds=np.linspace(0.5, 0.95, 10),
                   max_gt_windows=None, max_pred_windows=10, num_workers=8, chunksize=50):
-    #TODO look at ap
+    # TODO look at ap
     iou_thds = [float(f"{e:.2f}") for e in iou_thds]
     pred_qid2data = defaultdict(list)
     for d in submission:
@@ -72,10 +73,8 @@ def compute_mr_ap(submission, ground_truth, iou_thds=np.linspace(0.5, 0.95, 10),
     return iou_thd2ap
 
 
-def compute_mr_r1(submission, ground_truth, iou_thds=np.linspace(0.5, 0.95, 10)):
+def compute_mr_rk(submission, ground_truth, iou_thds=[0.1, 0.3, 0.5], top_ks=[1, 5, 10]):
     """If a predicted segment has IoU >= iou_thd with one of the 1st GT segment, we define it positive"""
-    iou_thds = [0.1, 0.3, 0.5]
-    top_ks = [1, 5, 10]
     iou_thds = [float(f"{e:.2f}") for e in iou_thds]
     pred_qid2window = dict()
     iou_thd2recall_at_k = {}
@@ -83,14 +82,11 @@ def compute_mr_r1(submission, ground_truth, iou_thds=np.linspace(0.5, 0.95, 10))
         for s in submission:
             pred_qid2window[s["qid"]] = [k[0:2] for k in s["pred_relevant_windows"][0:top_k]]  # :2 rm scores
 
-        # pred_qid2window = {d["qid"]: d["pred_relevant_windows"][0][:2] for d in submission}  # :2 rm scores
-        # gt_qid2window = {d["qid"]: d["relevant_windows"][0] for d in ground_truth}
-        gt_qid2window = {}
+
         iou_thd2recall_at_d = []
         for d in ground_truth:
             cur_gt_windows = d["relevant_windows"]
             cur_qid = d["id"]
-            cur_max_iou_idx = 0
             if len(cur_gt_windows) > 0:  # select the GT window that has the highest IoU
                 if len(pred_qid2window) >= top_k:
                     curr_pred_qid2window = np.array(pred_qid2window[cur_qid])
@@ -100,51 +96,40 @@ def compute_mr_r1(submission, ground_truth, iou_thds=np.linspace(0.5, 0.95, 10))
                     iou_thd2recall_at_d.append(cur_ious)
 
         for thd in iou_thds:
-            if len(iou_thd2recall_at_d)!=0:
+            if len(iou_thd2recall_at_d) != 0:
                 iou_thd2recall_at_k[f'{thd}@{top_k}'] = float(
-                    f"{np.mean(np.array([iou >= thd for iou in iou_thd2recall_at_d])[...,0].any(1)) * 100:.2f}")
+                    f"{(np.array(iou_thd2recall_at_d)[...,0] >=thd).any(1).mean() * 100:.2f}")
             else:
-                iou_thd2recall_at_k[f'{thd}@{top_k}'] = 0
+                iou_thd2recall_at_k[f'{thd}@{top_k}'] = -1
 
-            # cur_max_iou_idx = np.argmax(cur_ious)
-            # gt_qid2window[cur_qid] = cur_gt_windows[cur_max_iou_idx]
-
-        # qids = list(pred_qid2window.keys())
-        # pred_windows = np.array([pred_qid2window[k] for k in qids]).astype(float)
-        # gt_windows = np.array([gt_qid2window[k] for k in qids]).astype(float)
-        #
-        # pred_gt_iou = compute_temporal_iou_batch_paired(pred_windows, gt_windows)
-        # iou_thd2recall_at_one = {}
-        # for thd in iou_thds:
-        #     iou_thd2recall_at_one[str(thd)] = float(f"{np.mean(pred_gt_iou >= thd) * 100:.2f}")
     return iou_thd2recall_at_k
 
 
-# def compute_mr_r1(submission, ground_truth, iou_thds=np.linspace(0.5, 0.95, 10)):
-#     """If a predicted segment has IoU >= iou_thd with one of the 1st GT segment, we define it positive"""
-#     iou_thds = [float(f"{e:.2f}") for e in iou_thds]
-#     pred_qid2window = {d["qid"]: d["pred_relevant_windows"][0][:2] for d in submission}  # :2 rm scores
-#     # gt_qid2window = {d["qid"]: d["relevant_windows"][0] for d in ground_truth}
-#     gt_qid2window = {}
-#     for d in ground_truth:
-#         cur_gt_windows = d["relevant_windows"]
-#         cur_qid = d["id"]
-#         cur_max_iou_idx = 0
-#         if len(cur_gt_windows) > 0:  # select the GT window that has the highest IoU
-#             cur_ious = compute_temporal_iou_batch_cross(
-#                 np.array([pred_qid2window[cur_qid]]), np.array(d["relevant_windows"])
-#             )[0]
-#             cur_max_iou_idx = np.argmax(cur_ious)
-#         gt_qid2window[cur_qid] = cur_gt_windows[cur_max_iou_idx]
-#
-#     qids = list(pred_qid2window.keys())
-#     pred_windows = np.array([pred_qid2window[k] for k in qids]).astype(float)
-#     gt_windows = np.array([gt_qid2window[k] for k in qids]).astype(float)
-#     pred_gt_iou = compute_temporal_iou_batch_paired(pred_windows, gt_windows)
-#     iou_thd2recall_at_one = {}
-#     for thd in iou_thds:
-#         iou_thd2recall_at_one[str(thd)] = float(f"{np.mean(pred_gt_iou >= thd) * 100:.2f}")
-#     return iou_thd2recall_at_one
+def compute_mr_r1(submission, ground_truth, iou_thds=np.linspace(0.5, 0.95, 10)):
+    """If a predicted segment has IoU >= iou_thd with one of the 1st GT segment, we define it positive"""
+    iou_thds = [float(f"{e:.2f}") for e in iou_thds]
+    pred_qid2window = {d["qid"]: d["pred_relevant_windows"][0][:2] for d in submission}  # :2 rm scores
+    # gt_qid2window = {d["qid"]: d["relevant_windows"][0] for d in ground_truth}
+    gt_qid2window = {}
+    for d in ground_truth:
+        cur_gt_windows = d["relevant_windows"]
+        cur_qid = d["id"]
+        cur_max_iou_idx = 0
+        if len(cur_gt_windows) > 0:  # select the GT window that has the highest IoU
+            cur_ious = compute_temporal_iou_batch_cross(
+                np.array([pred_qid2window[cur_qid]]), np.array(d["relevant_windows"])
+            )[0]
+            cur_max_iou_idx = np.argmax(cur_ious)
+        gt_qid2window[cur_qid] = cur_gt_windows[cur_max_iou_idx]
+
+    qids = list(pred_qid2window.keys())
+    pred_windows = np.array([pred_qid2window[k] for k in qids]).astype(float)
+    gt_windows = np.array([gt_qid2window[k] for k in qids]).astype(float)
+    pred_gt_iou = compute_temporal_iou_batch_paired(pred_windows, gt_windows)
+    iou_thd2recall_at_one = {}
+    for thd in iou_thds:
+        iou_thd2recall_at_one[str(thd)] = float(f"{np.mean(pred_gt_iou >= thd) * 100:.2f}")
+    return iou_thd2recall_at_one
 
 
 def get_window_len(window):
@@ -199,8 +184,8 @@ def eval_moment_retrieval(submission, ground_truth, verbose=True):
             print(f"{name}: {l_range}, {len(_ground_truth)}/{len(ground_truth)}="
                   f"{100 * len(_ground_truth) / len(ground_truth):.2f} examples.")
             iou_thd2average_precision = compute_mr_ap(_submission, _ground_truth, num_workers=8, chunksize=50)
-            iou_thd2recall_at_k = compute_mr_r1(_submission, _ground_truth)
-            # TODO MR-RK
+            #iou_thd2recall_at_k = compute_mr_r1(_submission, _ground_truth)
+            iou_thd2recall_at_k = compute_mr_rk(_submission, _ground_truth)
             ret_metrics[name] = {"MR-mAP": iou_thd2average_precision, "MR-RK": iou_thd2recall_at_k}
             if verbose:
                 print(f"[eval_moment_retrieval] [{name}] {time.time() - start_time:.2f} seconds")
@@ -371,8 +356,6 @@ def eval_submission(submission, ground_truth, verbose=True, match_number=True):
         moment_ret_scores = eval_moment_retrieval(
             submission, ground_truth, verbose=verbose)
 
-        #moment_ret_scores = evaluate(submission, ground_truth)
-
         eval_metrics.update(moment_ret_scores)
         moment_ret_scores_brief = {
             "MR-mAP": moment_ret_scores["full"]["MR-mAP"]["average"],
@@ -386,7 +369,7 @@ def eval_submission(submission, ground_truth, verbose=True, match_number=True):
         eval_metrics_brief.update(
             sorted([(k, v) for k, v in moment_ret_scores_brief.items()], key=lambda x: x[0]))
 
-    #TODO no highlight score calculation
+    # TODO no highlight score calculation
     if "pred_saliency_scores" in submission[0] and False:
         highlight_det_scores = eval_highlight(
             submission, ground_truth, verbose=verbose)
@@ -421,80 +404,6 @@ def eval_main():
 
     with open(args.save_path, "w") as f:
         f.write(json.dumps(results, indent=4))
-
-#from https://github.com/Soldelli/MAD/blob/48f7e1325b7b36b2e7ccc30dfb509880d65b89a2/baselines/VLG-Net/lib/data/datasets/utils.py
-# def iou(candidates, gt):
-#     start, end = candidates[:,0].float(), candidates[:,1].float()
-#     s, e = gt[0].float(), gt[1].float()
-#     inter = end.min(e) - start.max(s)
-#     union = end.max(e) - start.min(s)
-#     return inter.clamp(min=0) / union
-#
-# #from https://github.com/Soldelli/MAD/blob/main/baselines/VLG-Net/lib/engine/evaluation.py
-# def nms(moments, scores, topk, thresh, relative_fps):
-#     scores, ranks = scores.sort(descending=True)
-#     moments = moments[ranks]
-#     moments = moments / relative_fps
-#
-#     suppressed = torch.zeros_like(moments[:,0], dtype=torch.bool)
-#     numel = suppressed.numel()
-#     for i in range(numel - 1):
-#         if suppressed[i]:
-#             continue
-#         mask = iou(moments[i+1:], moments[i]) > thresh
-#         suppressed[i+1:][mask] = True
-#         if i % topk.item() == 0:
-#             if (~suppressed[:i]).sum() >= topk:
-#                 break
-#
-#     moments = moments[~suppressed]
-#     return moments[:topk]
-#
-# def evaluate(submission, ground_truth,
-#             recall_metrics=(1,5,10,50,100),
-#             iou_metrics=(0.1,0.3,0.5,0.7)):
-#
-#     """evaluate dataset using different methods based on dataset type.
-#     Args:
-#     Returns:
-#     """
-#
-#     num_recall_metrics, num_iou_metrics = len(recall_metrics), len(iou_metrics)
-#     recall_metrics = torch.tensor(recall_metrics)
-#     iou_metrics    = torch.tensor(iou_metrics)
-#
-#     def _eval(dataset, idx, scores):
-#         # Compute moment candidates and their scores
-#         stride = dataset.get_relative_stride()
-#         num_windows = dataset.get_number_of_windows(idx)
-#         candidates  = torch.cat([moments_indexes + i * stride for i in range(num_windows)])
-#
-#         # Sort and apply nms
-#         relative_fps = dataset.get_relative_fps()
-#         moments = nms(candidates, scores, topk=recall_metrics[-1],
-#                         relative_fps=relative_fps, thresh=nms_thresh)
-#
-#         # Compute performance
-#         recall_x_iou_idx = torch.zeros(num_recall_metrics, num_iou_metrics)
-#         gt_moment = dataset.get_moment(idx)
-#         mious = iou(moments, gt_moment)
-#         if len(mious)< recall_metrics[-1]:
-#             mious = F.pad(mious, (0,recall_metrics[-1] - len(mious) ), "constant", 0.0)
-#         bools = mious[:,None].expand(recall_metrics[-1], num_iou_metrics) >= iou_metrics
-#         for i, r in enumerate(recall_metrics):
-#             recall_x_iou_idx[i] += bools[:r].any(dim=0)
-#
-#         return recall_x_iou_idx
-#
-#     recall_x_iou_dict = {}
-#     num_predictions = len(submission)
-#     for idx, sub in enumerate(submission):
-#         recall_x_iou_dict[idx] = _eval(ground_truth[idx], idx, sub)
-#     recall_x_iou = torch.stack(list(recall_x_iou_dict.values()),dim=0).sum(dim=0)
-#
-#     recall_x_iou /= num_predictions
-#
-#     return torch.tensor(recall_x_iou)
 
 
 if __name__ == '__main__':

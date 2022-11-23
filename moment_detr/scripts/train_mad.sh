@@ -31,9 +31,9 @@ max_v_l=128
 sheduler=step_lr
 
 ## Losses
-lw_saliency=2
+lw_saliency=1
 set_cost_class=4   #"Class coefficient in the matching cost"
-label_loss_coef=4
+label_loss_coef=1
 ##set for results tracking!
 window_length=25.6
 sampling_mode=none
