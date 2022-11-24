@@ -172,8 +172,9 @@ def get_data_by_range(submission, ground_truth, len_range):
 
 
 def eval_moment_retrieval(submission, ground_truth, verbose=True):
-    length_ranges = [[0, 10], [10, 30], [30, 150], [0, 150], ]  #
+    length_ranges = [[0, 10], [10, 20], [20, 30], [0, 100], ]  #
     range_names = ["short", "middle", "long", "full"]
+    range_names = [f'{d}_{length_ranges[idx][0]}_{length_ranges[idx][1]}' if d!='full' else 'full' for idx,d in enumerate(range_names)]
 
     ret_metrics = {}
     for l_range, name in zip(length_ranges, range_names):
@@ -182,7 +183,7 @@ def eval_moment_retrieval(submission, ground_truth, verbose=True):
         _submission, _ground_truth = get_data_by_range(submission, ground_truth, l_range)
         if len(_submission) != 0:
             print(f"{name}: {l_range}, {len(_ground_truth)}/{len(ground_truth)}="
-                  f"{100 * len(_ground_truth) / len(ground_truth):.2f} examples.")
+                  f"{100 * len(_ground_truth) / len(ground_truth):.2f}% examples.")
             iou_thd2average_precision = compute_mr_ap(_submission, _ground_truth, num_workers=8, chunksize=50)
             #iou_thd2recall_at_k = compute_mr_r1(_submission, _ground_truth)
             iou_thd2recall_at_k = compute_mr_rk(_submission, _ground_truth)
