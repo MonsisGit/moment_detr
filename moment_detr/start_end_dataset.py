@@ -225,7 +225,7 @@ class StartEndDataset(Dataset):
                 _feat = np.load(_feat_path)["features"].astype(np.float32)[:self.max_v_l]
             except Exception as e:
                 print(f'{e}\nFile: {_feat_path}')
-                _feat = np.zeros(shape=(128, 768))
+                _feat = np.zeros(shape=(self.max_v_l, 768))
 
             if self.normalize_v:
                 _feat = l2_normalize_np_array(_feat)

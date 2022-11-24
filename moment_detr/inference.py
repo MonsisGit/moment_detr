@@ -157,7 +157,14 @@ def compute_mr_results(model, eval_loader, opt, epoch_i=None, criterion=None, tb
         max_ts_val = float(opt.v_feat_dirs[0].split("_")[-2])
         assert type(max_ts_val) == float
         assert max_ts_val > 0
+
     except Exception as e:
+        try:
+            max_ts_val = float(opt.v_feat_dirs[0].split("_")[-2][2:])
+            assert type(max_ts_val) == float
+            assert max_ts_val > 0
+        except:
+            pass
         print(e)
         print("max_ts_value for PostProcessor set to 180")
         max_ts_val = 180
@@ -217,12 +224,6 @@ def setup_model(opt):
     if opt.scheduler == 'cosnl_wrmp':
         lr_scheduler = CosineAnnealingWarmupRestarts(optimizer, first_cycle_steps=10, cycle_mult=1.0,
                                                      max_lr=1e-3, min_lr=1e-5, warmup_steps=4, gamma=0.5)
-    elif opt.scheduler == 'step_lr_warmup':
-        step_lr = torch.optim.lr_scheduler.StepLR(optimizer, opt.lr_drop, gamma=0.5)
-        lr_scheduler = create_lr_scheduler_with_warmup(step_lr,
-                                                       warmup_start_value=0.0,
-                                                       warmup_end_value=0.1,
-                                                       warmup_duration=3)
     else:
         lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, opt.lr_drop, gamma=0.5)
 

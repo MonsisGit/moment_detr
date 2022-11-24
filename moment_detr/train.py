@@ -22,8 +22,8 @@ from moment_detr.inference import eval_epoch, start_inference, setup_model
 from utils.basic_utils import AverageMeter, dict_to_markdown
 from utils.model_utils import count_parameters
 
-
 import logging
+
 logger = logging.getLogger(__name__)
 logging.basicConfig(format="%(asctime)s.%(msecs)03d:%(levelname)s:%(name)s - %(message)s",
                     datefmt="%Y-%m-%d %H:%M:%S",
@@ -38,9 +38,9 @@ def set_seed(seed, use_cuda=True):
         torch.cuda.manual_seed_all(seed)
 
 
-
 class ModelWrapper(torch.nn.Module):
     """ Wrapper class for model with dict/list rvalues. """
+
     def __init__(self, model: torch.nn.Module) -> None:
         """
         Init call.
@@ -63,7 +63,7 @@ class ModelWrapper(torch.nn.Module):
 
 
 def train_epoch(model, criterion, train_loader, optimizer, opt, epoch_i, tb_writer):
-    logger.info(f"[Epoch {epoch_i+1}]")
+    logger.info(f"[Epoch {epoch_i + 1}]")
     model.train()
     criterion.train()
 
@@ -106,13 +106,13 @@ def train_epoch(model, criterion, train_loader, optimizer, opt, epoch_i, tb_writ
             break
 
     # print/add logs
-    tb_writer.add_scalar("Train/lr", float(optimizer.param_groups[0]["lr"]), epoch_i+1)
+    tb_writer.add_scalar("Train/lr", float(optimizer.param_groups[0]["lr"]), epoch_i + 1)
     for k, v in loss_meters.items():
-        tb_writer.add_scalar("Train/{}".format(k), v.avg, epoch_i+1)
+        tb_writer.add_scalar("Train/{}".format(k), v.avg, epoch_i + 1)
 
     to_write = opt.train_log_txt_formatter.format(
         time_str=time.strftime("%Y_%m_%d_%H_%M_%S"),
-        epoch=epoch_i+1,
+        epoch=epoch_i + 1,
         loss_str=" ".join(["{} {:.4f}".format(k, v.avg) for k, v in loss_meters.items()]))
     with open(opt.train_log_filepath, "a") as f:
         f.write(to_write)
@@ -130,7 +130,6 @@ def train(model, criterion, optimizer, lr_scheduler, train_dataset, val_dataset,
 
     tb_writer = SummaryWriter(opt.tensorboard_log_dir)
     tb_writer.add_text("hyperparameters", dict_to_markdown(vars(opt), max_str_len=None))
-
 
     opt.train_log_txt_formatter = "{time_str} [Epoch] {epoch:03d} [Loss] {loss_str}\n"
     opt.eval_log_txt_formatter = "{time_str} [Epoch] {epoch:03d} [Loss] {loss_str} [Metrics] {eval_metrics_str}\n"
@@ -156,6 +155,10 @@ def train(model, criterion, optimizer, lr_scheduler, train_dataset, val_dataset,
         if epoch_i > -1:
             train_epoch(model, criterion, train_loader, optimizer, opt, epoch_i, tb_writer)
             lr_scheduler.step()
+            if opt.scheduler == 'step_lr_warmup' and epoch_i < 10:
+                lr_scheduler.optimizer.param_groups[0]['lr'] = \
+                    (0.1 + (epoch_i / 10)) * lr_scheduler.optimizer.defaults['lr']
+
         eval_epoch_interval = 1
         if opt.eval_path is not None and (epoch_i + 1) % eval_epoch_interval == 0:
             with torch.no_grad():
@@ -177,7 +180,7 @@ def train(model, criterion, optimizer, lr_scheduler, train_dataset, val_dataset,
 
             metrics = metrics_no_nms
             for k, v in metrics["brief"].items():
-                tb_writer.add_scalar(f"Eval/{k}", float(v), epoch_i+1)
+                tb_writer.add_scalar(f"Eval/{k}", float(v), epoch_i + 1)
 
             stop_score = metrics["brief"]["MR-R1@0.5"]
             if stop_score > prev_best_score:
@@ -295,6 +298,7 @@ if __name__ == '__main__':
                       "--eval_path", eval_path]
 
         import sys
+
         sys.argv[1:] = input_args
         logger.info("\n\n\nFINISHED TRAINING!!!")
         logger.info("Evaluating model at {}".format(best_ckpt_path))

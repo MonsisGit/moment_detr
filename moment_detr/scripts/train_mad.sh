@@ -9,7 +9,7 @@ root=/nfs/data3/goldhofer/mad_dataset/
 train_path=${root}annotations/MAD_train_SMNone_FPS5_CL180_L2True.json
 eval_path=${root}annotations/MAD_val_SMNone_FPS5_CL180_L2True.json
 results_root=${root}momentDETR_results
-v_feat_dirs=(/nfs/data3/goldhofer/mad_dataset/clip_features_train_SMNone_FPS5_CL180_L2True/)
+v_feat_dirs=(/nfs/data3/goldhofer/mad_dataset/clip_features_SMNone_FPS5_CL180_L2True/)
 t_feat_dir=/nfs/data3/goldhofer/mad_dataset/
 lang_feat_path=CLIP_L14_language_tokens_features.h5
 
@@ -27,7 +27,7 @@ lr=2e-4
 lr_drop=10
 clip_length=0.2
 max_q_l=32
-max_v_l=128
+max_v_l=180
 sheduler=step_lr
 
 ## Losses
@@ -39,6 +39,11 @@ window_length=180
 sampling_mode=none
 fps=5
 eval_results_dir=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_lrd${lr_drop}_dr${data_ratio}_wl${window_length}_sm${sampling_mode}_fps${fps}_lws${lw_saliency}_lloss${label_loss_coef}_${sheduler}
+
+if [ ${window_length} -gt ${max_v_l} ]; then
+    echo "Window length larger than max_v_l"
+    exit 0
+fi
 
 
 PYTHONPATH=$PYTHONPATH:. python moment_detr/train.py \
