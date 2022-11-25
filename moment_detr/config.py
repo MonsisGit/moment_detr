@@ -143,14 +143,14 @@ class BaseOptions(object):
                                  "to post-processing the predictions. "
                                  "-1: do not use nms. [0, 1]")
         #long_nlq
-        parser.add_argument('--sampling_fps', default=0.5, type=float, help="dataloader sampling fps")
+        parser.add_argument('--sampling_fps', default=5, type=float, help="dataloader sampling fps")
         parser.add_argument("--saved_option_filename", type=str, default="opt_mad.json")
         parser.add_argument("--cuda_visible_devices", nargs="*", type=int, default=None,
                             help="list of cuda visible devices")
         parser.add_argument("--eval_results_dir", type=str, default=None,
                                  help="dir to save results, if not set, fall back to training results_dir")
-        parser.add_argument("--sampling_mode", type=str, default="fixed",
-                                 help="Available Frame sampling modes are: fixed, random, pooling")
+        parser.add_argument("--sampling_mode", type=str, default="offline",
+                                 help="use offline or online sampling", choices=['offline','online'])
         parser.add_argument("--lang_feat_path", type=str, default="CLIP_L14_language_tokens_features.h5")
         parser.add_argument("--scheduler", type=str, default="step_lr", choices=['step_lr', 'cosnl_wrmp','step_lr_warmup'])
 

@@ -6,10 +6,10 @@ exp_id=exp
 
 ######## paths
 root=/nfs/data3/goldhofer/mad_dataset/
-train_path=${root}annotations/MAD_train_SMNone_FPS5_CL180_L2True.json
-eval_path=${root}annotations/MAD_val_SMNone_FPS5_CL180_L2True.json
+train_path=${root}annotations/MAD_train_SMNone_FPS5_CL25.6_L2True.json
+eval_path=${root}annotations/MAD_val_SMNone_FPS5_CL25.6_L2True.json
 results_root=${root}momentDETR_results
-v_feat_dirs=(/nfs/data3/goldhofer/mad_dataset/clip_features_SMNone_FPS5_CL180_L2True/)
+v_feat_dirs=(/nfs/data3/goldhofer/mad_dataset/clip_frame_features_25.6_5FPS/)
 t_feat_dir=/nfs/data3/goldhofer/mad_dataset/
 lang_feat_path=CLIP_L14_language_tokens_features.h5
 
@@ -18,32 +18,33 @@ lang_feat_path=CLIP_L14_language_tokens_features.h5
 eval_split_name=val
 v_feat_dim=768
 t_feat_dim=768
-bsz=64
+bsz=256
 cuda_visible_devices=0
 data_ratio=1
 num_workers=8
-n_epoch=100
-lr=2e-4
+n_epoch=60
+lr=8e-4
 lr_drop=10
 clip_length=0.2
 max_q_l=32
+#this must be fps * window length
 max_v_l=180
-sheduler=step_lr
+sheduler=step_lr_warmup
 
 ## Losses
-lw_saliency=1
+lw_saliency=4
 set_cost_class=4   #"Class coefficient in the matching cost"
-label_loss_coef=1
+label_loss_coef=4
 ##set for results tracking!
-window_length=180
+window_length=25.6
 sampling_mode=none
 fps=5
 eval_results_dir=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_lrd${lr_drop}_dr${data_ratio}_wl${window_length}_sm${sampling_mode}_fps${fps}_lws${lw_saliency}_lloss${label_loss_coef}_${sheduler}
 
-if [ ${window_length} -gt ${max_v_l} ]; then
-    echo "Window length larger than max_v_l"
-    exit 0
-fi
+#if [ ${window_length} -gt ${max_v_l} ]; then
+#    echo "Window length larger than max_v_l"
+#    exit 0
+#fi
 
 
 PYTHONPATH=$PYTHONPATH:. python moment_detr/train.py \
@@ -74,4 +75,5 @@ PYTHONPATH=$PYTHONPATH:. python moment_detr/train.py \
 --scheduler=${sheduler} \
 --label_loss_coef ${label_loss_coef} \
 --set_cost_class ${set_cost_class} \
+--eval_bsz ${bsz} \
 ${@:1}

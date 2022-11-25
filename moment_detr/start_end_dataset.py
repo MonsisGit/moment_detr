@@ -1,5 +1,5 @@
 import traceback
-
+import os
 import torch
 from torch.utils.data import Dataset
 import numpy as np
@@ -35,7 +35,7 @@ class StartEndDataset(Dataset):
                  max_q_l=32, max_v_l=75, data_ratio=1.0, ctx_mode="video",
                  normalize_v=True, normalize_t=True, load_labels=True,
                  clip_len=2, max_windows=5, span_loss_type="l1", txt_drop_ratio=0, sampling_fps=0.5,
-                 sampling_mode='fixed', lang_feat_path='CLIP_L14_language_tokens_features'):
+                 sampling_mode='none', lang_feat_path='CLIP_L14_language_tokens_features'):
         self.dset_name = dset_name
         self.data_path = data_path
         self.data_ratio = data_ratio
@@ -66,6 +66,10 @@ class StartEndDataset(Dataset):
 
         # data
         self.data = self.load_data()
+        self.sampling_mode=sampling_mode
+        if sampling_mode == 'online':
+            self.video_feats = h5py.File(os.path.join(self.v_feat_dirs), 'r')
+        self.sampling_fps = sampling_fps
 
     def load_data(self):
         datalist = load_jsonl(self.data_path)
@@ -86,7 +90,7 @@ class StartEndDataset(Dataset):
 
         model_inputs["query_feat"] = self._get_query_feat_by_qid(meta["id"])  # (Dq, ) or (Lq, Dq)
         if self.use_video:
-            model_inputs["video_feat"] = self._get_video_feat_by_vid(meta["id"])  # (Lv, Dv)
+            model_inputs["video_feat"] = self._get_video_feat_by_vid(meta["id"],meta)  # (Lv, Dv)
 
             ctx_l = len(model_inputs["video_feat"])
         else:
@@ -217,12 +221,17 @@ class StartEndDataset(Dataset):
             embeddings[row_indices] = 0
         return embeddings
 
-    def _get_video_feat_by_vid(self, vid):
+    def _get_video_feat_by_vid(self, vid, meta):
         v_feat_list = []
         for _feat_dir in self.v_feat_dirs:
             _feat_path = join(_feat_dir, f"{vid}.npz")
             try:
-                _feat = np.load(_feat_path)["features"].astype(np.float32)[:self.max_v_l]
+                if self.sampling_mode=='offline':
+                    _feat = np.load(_feat_path)["features"].astype(np.float32)[:self.max_v_l]
+                elif self.sampling_mode=='online':
+                    _feat = self._online_sampling(_feat_path, meta)
+                else:
+                    raise NotImplementedError
             except Exception as e:
                 print(f'{e}\nFile: {_feat_path}')
                 _feat = np.zeros(shape=(self.max_v_l, 768))
@@ -235,6 +244,79 @@ class StartEndDataset(Dataset):
         v_feat_list = [e[:min_len] for e in v_feat_list]
         v_feat = np.concatenate(v_feat_list, axis=1)
         return torch.from_numpy(v_feat)  # (Lv, D)
+
+    def _online_sampling(self,_feat_path, meta):
+        temp_dict = self._compute_annotations(_feat_path,meta)
+        video_features, start_moment, stop_moment = self._get_video_features(temp_dict)
+        dump_dict = {
+            'id': k,
+            'relevant_windows': [[start_moment, stop_moment]],
+            'query': sentence,
+            'duration': self.clip_length_in_seconds,
+        }
+        return
+
+    def _compute_annotations(self, _feat_path,meta):
+        movie = anno['movie']
+        duration = anno['movie_duration']
+        timestamp = anno['ext_timestamps']
+        sentence = anno['sentence']
+
+        # Process gt annotations -----------------------------------------------------
+        if timestamp[0] < timestamp[1]:
+            moment = [max(timestamp[0], 0), min(timestamp[1], duration)]
+
+            start = int(moment[0] * self.dataset_fps)
+            stop = int(moment[1] * self.dataset_fps)
+
+            # frames_idx is in frame space
+            frames_idx = [start, stop]
+
+            # Save preprocessed annotations ----------------------------------------------
+            temp_dict = {
+                'id': k,
+                'movie': movie,
+                'moment': moment,
+                'frames_idx': frames_idx,
+                'sentence': sentence,
+                'movie_duration': duration,
+            }
+        return temp_dict
+
+    def _get_video_features(self, anno):
+        start_idx, stop_idx = anno['frames_idx']
+        num_frames = stop_idx - start_idx
+        assert num_frames > 0, f"Number of frames is {num_frames}"
+
+        if num_frames < self.clip_length_in_frames:
+            offset = random.sample(range(0, self.clip_length_in_frames - num_frames, 1), 1)[0]
+            start_window = max(start_idx - offset, 0)
+        else:
+            center = (start_idx + stop_idx) / 2
+            offset = self.clip_length_in_frames / 2
+            start_window = max(int(center - offset), 0)
+
+        # Compute features for window
+        stop_window = start_window + self.clip_length_in_frames
+
+        if not stop_window <= anno['movie_duration'] * self.dataset_fps:
+            stop_window = int(anno['movie_duration'] * self.dataset_fps)
+            start_window = stop_window - self.clip_length_in_frames
+
+        feats = self.video_feats[anno['movie']][start_window:stop_window]
+
+        assert feats.shape[0] == self.clip_length_in_frames
+
+        # Compute moment position within the window in seconds
+        start_moment = max((start_idx - start_window) / self.dataset_fps, 0)
+        stop_moment = min((stop_idx - start_window) / self.dataset_fps, self.clip_length_in_seconds)
+
+        assert 0 <= start_moment <= self.clip_length_in_seconds, f'start moment ({start_moment}) outside clip'
+        assert 0 <= stop_moment <= self.clip_length_in_seconds, f'stop moment ({stop_moment}) outside clip'
+
+        return feats, start_moment, stop_moment
+
+
 
 
 def start_end_collate(batch):
