@@ -81,6 +81,7 @@ class StartEndDataset(Dataset):
         self.data_keys = list(self.data[0].keys())
         self.use_exact_ts = use_exact_ts
         self.is_val = True if 'val' in self.dset_name else False
+        self.val_offset = 0
 
         #set seed
         np.random.seed(seed=42)
@@ -116,14 +117,15 @@ class StartEndDataset(Dataset):
         if self.use_video and self.sampling_mode == 'offline' and self.using_mat_dataset:
             model_inputs["video_feat"], meta = self._get_video_feat_by_vid(qid=qid,
                                                                            vid=meta["id"],
-                                                                           meta=meta)  # (Lv, Dv)
+                                                                           meta=meta,
+                                                                           index=index)  # (Lv, Dv)
             ctx_l = len(model_inputs["video_feat"])
 
         elif self.use_video and self.sampling_mode == 'online' and self.using_mat_dataset:
             model_inputs["video_feat"], meta = self._get_video_feat_by_vid(qid=qid,
                                                                            vid=meta["movie"],
                                                                            meta=meta,
-                                                                           index)  # (Lv, Dv)
+                                                                           index=index)  # (Lv, Dv)
             ctx_l = len(model_inputs["video_feat"])
         else:
             ctx_l = self.max_v_l
@@ -335,10 +337,9 @@ class StartEndDataset(Dataset):
 
     def _calc_val_offset(self, index, num_frames):
         if not bool((index/self.clip_length_in_frames)%1):
-            offset =  int(max(min(index - index//self.clip_length_in_frames, self.clip_length_in_frames),0))
-            return offset - num_frames
-        else:
-            return index - num_frames
+            self.val_offset =  index//self.clip_length_in_frames
+
+        return int(min(max(index - self.val_offset,0), self.clip_length_in_frames - num_frames))
 
     def _get_video_features(self, meta, index):
         start_idx, stop_idx = meta['frames_idx']
