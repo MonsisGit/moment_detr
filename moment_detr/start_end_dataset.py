@@ -65,16 +65,17 @@ class StartEndDataset(Dataset):
         assert q_feat_type in self.Q_FEAT_TYPES
 
         # data
+        self.sampling_mode = sampling_mode
         self.data = self.load_data()
-        self.sampling_mode=sampling_mode
         if sampling_mode == 'online':
-            self.video_feats = h5py.File(os.path.join(self.v_feat_dirs), 'r')
+            self.video_feats = h5py.File(os.path.join(self.v_feat_dirs[0], 'CLIP_L14_frames_features_5fps.h5'), 'r')
         self.sampling_fps = sampling_fps
+        self.data_keys = list(self.data[0].keys())
 
     def load_data(self):
         datalist = load_jsonl(self.data_path)
         if self.data_ratio != 1:
-            n_examples = int(len(datalist) * self.data_ratio)
+            n_examples = int(len(datalist[0]) * self.data_ratio)
             datalist = datalist[:n_examples]
             logger.info("Using {}% of the data: {} examples"
                         .format(self.data_ratio * 100, n_examples))
@@ -84,14 +85,21 @@ class StartEndDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, index):
-        meta = self.data[index]
-
         model_inputs = dict()
+        meta = self.data[index]
+        if self.sampling_mode == 'online' and self.using_mat_dataset:
+            qid = self.data_keys[index]
+            meta = self.data[0][qid]
+            model_inputs["query_feat"] = self._get_query_feat_by_qid(qid)  # (Dq, ) or (Lq, Dq)
+        else:
+            model_inputs["query_feat"] = self._get_query_feat_by_qid(meta['id'])  # (Dq, ) or (Lq, Dq)
 
-        model_inputs["query_feat"] = self._get_query_feat_by_qid(meta["id"])  # (Dq, ) or (Lq, Dq)
-        if self.use_video:
-            model_inputs["video_feat"] = self._get_video_feat_by_vid(meta["id"],meta)  # (Lv, Dv)
+        if self.use_video and self.sampling_mode == 'offline' and self.using_mat_dataset:
+            model_inputs["video_feat"] = self._get_video_feat_by_vid(meta["id"], meta)  # (Lv, Dv)
+            ctx_l = len(model_inputs["video_feat"])
 
+        elif self.use_video and self.sampling_mode == 'online' and self.using_mat_dataset:
+            model_inputs["video_feat"] = self._get_video_feat_by_vid(None, meta)  # (Lv, Dv)
             ctx_l = len(model_inputs["video_feat"])
         else:
             ctx_l = self.max_v_l
@@ -192,11 +200,16 @@ class StartEndDataset(Dataset):
         return windows
 
     def _get_query_feat_by_qid(self, qid):
-        if self.using_mat_dataset:
-            q_feat = np.array(self.lang_feats[qid]).astype(np.float32)
-        else:
+        if self.using_mat_dataset and self.sampling_mode == 'offline':
             q_feat_path = join(self.q_feat_dir, f"qid{qid}.npz")
             q_feat = np.load(q_feat_path)[self.q_feat_type].astype(np.float32)
+
+        elif self.using_mat_dataset and self.sampling_mode == 'online':
+            q_feat = self.lang_feats[qid]
+
+        else:
+            q_feat = np.array(self.lang_feats[qid]).astype(np.float32)
+
         if self.q_feat_type == "last_hidden_state":
             q_feat = q_feat[:self.max_q_l]
         if self.normalize_t:
@@ -226,9 +239,9 @@ class StartEndDataset(Dataset):
         for _feat_dir in self.v_feat_dirs:
             _feat_path = join(_feat_dir, f"{vid}.npz")
             try:
-                if self.sampling_mode=='offline':
+                if self.sampling_mode == 'offline':
                     _feat = np.load(_feat_path)["features"].astype(np.float32)[:self.max_v_l]
-                elif self.sampling_mode=='online':
+                elif self.sampling_mode == 'online':
                     _feat = self._online_sampling(_feat_path, meta)
                 else:
                     raise NotImplementedError
@@ -245,8 +258,8 @@ class StartEndDataset(Dataset):
         v_feat = np.concatenate(v_feat_list, axis=1)
         return torch.from_numpy(v_feat)  # (Lv, D)
 
-    def _online_sampling(self,_feat_path, meta):
-        temp_dict = self._compute_annotations(_feat_path,meta)
+    def _online_sampling(self, _feat_path, meta):
+        temp_dict = self._compute_annotations(_feat_path, meta)
         video_features, start_moment, stop_moment = self._get_video_features(temp_dict)
         dump_dict = {
             'id': k,
@@ -256,7 +269,7 @@ class StartEndDataset(Dataset):
         }
         return
 
-    def _compute_annotations(self, _feat_path,meta):
+    def _compute_annotations(self, _feat_path, meta):
         movie = anno['movie']
         duration = anno['movie_duration']
         timestamp = anno['ext_timestamps']
@@ -315,8 +328,6 @@ class StartEndDataset(Dataset):
         assert 0 <= stop_moment <= self.clip_length_in_seconds, f'stop moment ({stop_moment}) outside clip'
 
         return feats, start_moment, stop_moment
-
-
 
 
 def start_end_collate(batch):
