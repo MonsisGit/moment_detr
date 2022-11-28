@@ -160,7 +160,11 @@ def get_data_by_range(submission, ground_truth, len_range):
             d = copy.deepcopy(d)
             d["relevant_windows"] = rel_windows_in_range
             ground_truth_in_range.append(d)
-            gt_qids_in_range.add(d["id"])
+            try:
+                gt_qids_in_range.add(d["id"])
+            except:
+                gt_qids_in_range.add(d["qid"])
+
 
     # keep only submissions for ground_truth_in_range
     submission_in_range = []
@@ -341,7 +345,11 @@ def eval_submission(submission, ground_truth, verbose=True, match_number=True):
 
     """
     pred_qids = set([e["qid"] for e in submission])
-    gt_qids = set([e["id"] for e in ground_truth])
+    try:
+        gt_qids = set([e["id"] for e in ground_truth])
+    except:
+        gt_qids = set(ground_truth[0].keys())
+
     if match_number:
         assert pred_qids == gt_qids, \
             f"qids in ground_truth and submission must match. " \
@@ -349,7 +357,11 @@ def eval_submission(submission, ground_truth, verbose=True, match_number=True):
     else:  # only leave the items that exists in both submission and ground_truth
         shared_qids = pred_qids.intersection(gt_qids)
         submission = [e for e in submission if e["qid"] in shared_qids]
-        ground_truth = [e for e in ground_truth if e["id"] in shared_qids]
+        try:
+            ground_truth = [e for e in ground_truth if e["id"] in shared_qids]
+        except:
+            ground_truth = [e for e in ground_truth if e["qid"] in shared_qids]
+
 
     eval_metrics = {}
     eval_metrics_brief = OrderedDict()

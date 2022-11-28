@@ -80,6 +80,11 @@ class StartEndDataset(Dataset):
         self.sampling_fps = sampling_fps
         self.data_keys = list(self.data[0].keys())
         self.use_exact_ts = use_exact_ts
+        self.is_val = True if 'val' in self.dset_name else False
+
+        #set seed
+        np.random.seed(seed=42)
+
 
     def load_data(self):
         datalist = load_jsonl(self.data_path)
@@ -94,7 +99,11 @@ class StartEndDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, index):
+        if self.is_val:
+           print('is val')
+
         model_inputs = dict()
+        print(index)
 
         if self.sampling_mode == 'online' and self.using_mat_dataset:
             qid = self.data_keys[index]
@@ -105,11 +114,16 @@ class StartEndDataset(Dataset):
             model_inputs["query_feat"] = self._get_query_feat_by_qid(meta['id'])  # (Dq, ) or (Lq, Dq)
 
         if self.use_video and self.sampling_mode == 'offline' and self.using_mat_dataset:
-            model_inputs["video_feat"], meta = self._get_video_feat_by_vid(meta["id"], meta)  # (Lv, Dv)
+            model_inputs["video_feat"], meta = self._get_video_feat_by_vid(qid=qid,
+                                                                           vid=meta["id"],
+                                                                           meta=meta)  # (Lv, Dv)
             ctx_l = len(model_inputs["video_feat"])
 
         elif self.use_video and self.sampling_mode == 'online' and self.using_mat_dataset:
-            model_inputs["video_feat"], meta = self._get_video_feat_by_vid(None, meta)  # (Lv, Dv)
+            model_inputs["video_feat"], meta = self._get_video_feat_by_vid(qid=qid,
+                                                                           vid=meta["movie"],
+                                                                           meta=meta,
+                                                                           index)  # (Lv, Dv)
             ctx_l = len(model_inputs["video_feat"])
         else:
             ctx_l = self.max_v_l
@@ -244,7 +258,7 @@ class StartEndDataset(Dataset):
             embeddings[row_indices] = 0
         return embeddings
 
-    def _get_video_feat_by_vid(self, vid, meta):
+    def _get_video_feat_by_vid(self, qid, vid, meta, index):
         v_feat_list = []
         for _feat_dir in self.v_feat_dirs:
 
@@ -258,7 +272,7 @@ class StartEndDataset(Dataset):
 
             elif self.sampling_mode == 'online':
                 try:
-                    _feat, meta = self._online_sampling(meta)
+                    _feat, meta = self._online_sampling(qid, vid, meta, index)
                     _feat = _feat.astype(np.float32)[:self.max_v_l]
                 except Exception as e:
                     print(f'{e}\n')
@@ -281,10 +295,12 @@ class StartEndDataset(Dataset):
         v_feat = np.concatenate(v_feat_list, axis=1)
         return torch.from_numpy(v_feat), meta
 
-    def _online_sampling(self, meta):
+    def _online_sampling(self, qid, vid, meta, index):
         temp_dict = self._compute_annotations(meta)
-        video_features, start_moment, stop_moment = self._get_video_features(temp_dict)
+        video_features, start_moment, stop_moment = self._get_video_features(temp_dict, index)
         meta = {
+            'qid': qid,
+            'vid': vid,
             'relevant_windows': [[start_moment, stop_moment]],
             'query': meta['sentence'],
             'duration': self.clip_length_in_seconds,
@@ -317,13 +333,23 @@ class StartEndDataset(Dataset):
             }
         return temp_dict
 
-    def _get_video_features(self, meta):
+    def _calc_val_offset(self, index, num_frames):
+        if not bool((index/self.clip_length_in_frames)%1):
+            offset =  int(max(min(index - index//self.clip_length_in_frames, self.clip_length_in_frames),0))
+            return offset - num_frames
+        else:
+            return index - num_frames
+
+    def _get_video_features(self, meta, index):
         start_idx, stop_idx = meta['frames_idx']
         num_frames = stop_idx - start_idx
         assert num_frames > 0, f"Number of frames is {num_frames}"
 
         if num_frames < self.clip_length_in_frames:
-            offset = random.sample(range(0, self.clip_length_in_frames - num_frames, 1), 1)[0]
+            if not self.is_val:
+                offset = random.sample(range(0, self.clip_length_in_frames - num_frames, 1), 1)[0]
+            else:
+                offset = self._calc_val_offset(index, num_frames)
             start_window = max(start_idx - offset, 0)
 
         else:

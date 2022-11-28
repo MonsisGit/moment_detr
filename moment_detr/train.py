@@ -274,6 +274,7 @@ def start_training():
         lang_feat_path=opt.lang_feat_path,
         v_feat_dim=opt.v_feat_dim,
         dataset_fps=opt.dataset_fps,
+        use_exact_ts=opt.use_exact_ts,
 
     )
 
@@ -281,6 +282,7 @@ def start_training():
     train_dataset = StartEndDataset(**dataset_config)
 
     if opt.eval_path is not None:
+        dataset_config["dset_name"] = 'val'
         dataset_config["data_path"] = opt.eval_path
         dataset_config["txt_drop_ratio"] = 0
         dataset_config["q_feat_dir"] = opt.t_feat_dir.replace("sub_features", "text_features")  # for pretraining

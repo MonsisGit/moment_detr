@@ -128,10 +128,16 @@ def compute_mr_results(model, eval_loader, opt, epoch_i=None, criterion=None, tb
             if not opt.no_sort_results:
                 cur_ranked_preds = sorted(cur_ranked_preds, key=lambda x: x[2], reverse=True)
             cur_ranked_preds = [[float(f"{e:.4f}") for e in row] for row in cur_ranked_preds]
+
+            if opt.sampling_mode == 'online':
+                qid_temp = meta["qid"]
+                vid_temp = meta["vid"]
+            else:
+                qid_temp = vid_temp = meta["id"]
             cur_query_pred = dict(
-                qid=meta["id"],
+                qid=qid_temp,
                 query=meta["query"],
-                vid=meta["id"],
+                vid=vid_temp,
                 pred_relevant_windows=cur_ranked_preds,
                 pred_saliency_scores=saliency_scores[idx]
             )
@@ -250,7 +256,7 @@ def start_inference():
 
     assert opt.eval_path is not None
     eval_dataset = StartEndDataset(
-        dset_name=opt.dset_name,
+        dset_name='val',
         data_path=opt.eval_path,
         v_feat_dirs=opt.v_feat_dirs,
         q_feat_dir=opt.t_feat_dir,
@@ -271,6 +277,7 @@ def start_inference():
         lang_feat_path=opt.lang_feat_path,
         v_feat_dim=opt.v_feat_dim,
         dataset_fps=opt.dataset_fps,
+        use_exact_ts=opt.use_exact_ts,
     )
 
     model, criterion, _, _ = setup_model(opt)

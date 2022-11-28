@@ -155,6 +155,8 @@ class BaseOptions(object):
         parser.add_argument("--scheduler", type=str, default="step_lr", choices=['step_lr', 'cosnl_wrmp','step_lr_warmup'])
         parser.add_argument("--dataset_fps", type=float, default=5,
                             help="FPS sampling rate of the used dataset (MAD=5)")
+        parser.add_argument("--use_exact_ts", action="store_true",
+                            help="use exact timestamps instead of rounded to sampling fps")
 
         self.parser = parser
 
