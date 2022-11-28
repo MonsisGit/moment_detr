@@ -153,6 +153,8 @@ class BaseOptions(object):
                                  help="use offline or online sampling", choices=['offline','online'])
         parser.add_argument("--lang_feat_path", type=str, default="CLIP_L14_language_tokens_features.h5")
         parser.add_argument("--scheduler", type=str, default="step_lr", choices=['step_lr', 'cosnl_wrmp','step_lr_warmup'])
+        parser.add_argument("--dataset_fps", type=float, default=5,
+                            help="FPS sampling rate of the used dataset (MAD=5)")
 
         self.parser = parser
 

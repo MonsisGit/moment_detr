@@ -271,7 +271,9 @@ def start_training():
         txt_drop_ratio=opt.txt_drop_ratio,
         sampling_fps=opt.sampling_fps,
         sampling_mode=opt.sampling_mode,
-        lang_feat_path=opt.lang_feat_path
+        lang_feat_path=opt.lang_feat_path,
+        v_feat_dim=opt.v_feat_dim,
+        dataset_fps=opt.dataset_fps,
 
     )
 
