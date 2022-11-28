@@ -78,14 +78,14 @@ class StartEndDataset(Dataset):
         self.clip_length_in_seconds = self.max_v_l / self.dataset_fps
         self.clip_length_in_frames = self.max_v_l
         self.sampling_fps = sampling_fps
-        self.data_keys = list(self.data[0].keys())
+        # self.data_keys = [d['qid'] for d in self.data]
         self.use_exact_ts = use_exact_ts
         self.is_val = True if 'val' in self.dset_name else False
         self.val_offset = 0
 
-        #set seed
+        # set seed
         np.random.seed(seed=42)
-
+        random.seed(42)
 
     def load_data(self):
         datalist = load_jsonl(self.data_path)
@@ -100,33 +100,16 @@ class StartEndDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, index):
-        if self.is_val:
-           print('is val')
 
         model_inputs = dict()
-        print(index)
+        meta = self.data[index]
 
-        if self.sampling_mode == 'online' and self.using_mat_dataset:
-            qid = self.data_keys[index]
-            meta = self.data[0][qid]
-            model_inputs["query_feat"] = self._get_query_feat_by_qid(qid)  # (Dq, ) or (Lq, Dq)
-        else:
-            meta = self.data[index]
-            model_inputs["query_feat"] = self._get_query_feat_by_qid(meta['id'])  # (Dq, ) or (Lq, Dq)
+        model_inputs["query_feat"] = self._get_query_feat_by_qid(meta['qid'])  # (Dq, ) or (Lq, Dq)
 
-        if self.use_video and self.sampling_mode == 'offline' and self.using_mat_dataset:
-            model_inputs["video_feat"], meta = self._get_video_feat_by_vid(qid=qid,
-                                                                           vid=meta["id"],
-                                                                           meta=meta,
-                                                                           index=index)  # (Lv, Dv)
+        if self.use_video and self.using_mat_dataset:
+            model_inputs["video_feat"], meta = self._get_video_feat_by_vid(meta)  # (Lv, Dv)
             ctx_l = len(model_inputs["video_feat"])
 
-        elif self.use_video and self.sampling_mode == 'online' and self.using_mat_dataset:
-            model_inputs["video_feat"], meta = self._get_video_feat_by_vid(qid=qid,
-                                                                           vid=meta["movie"],
-                                                                           meta=meta,
-                                                                           index=index)  # (Lv, Dv)
-            ctx_l = len(model_inputs["video_feat"])
         else:
             ctx_l = self.max_v_l
 
@@ -260,12 +243,12 @@ class StartEndDataset(Dataset):
             embeddings[row_indices] = 0
         return embeddings
 
-    def _get_video_feat_by_vid(self, qid, vid, meta, index):
+    def _get_video_feat_by_vid(self, meta):
         v_feat_list = []
         for _feat_dir in self.v_feat_dirs:
 
             if self.sampling_mode == 'offline':
-                _feat_path = join(_feat_dir, f"{vid}.npz")
+                _feat_path = join(_feat_dir, f"{meta['vid']}.npz")
                 try:
                     _feat = np.load(_feat_path)["features"].astype(np.float32)[:self.max_v_l]
                 except Exception as e:
@@ -274,14 +257,14 @@ class StartEndDataset(Dataset):
 
             elif self.sampling_mode == 'online':
                 try:
-                    _feat, meta = self._online_sampling(qid, vid, meta, index)
+                    _feat, meta = self._online_sampling(meta)
                     _feat = _feat.astype(np.float32)[:self.max_v_l]
                 except Exception as e:
                     print(f'{e}\n')
                     _feat = np.zeros(shape=(self.max_v_l, self.v_feat_dim))
                     meta = {
                         'relevant_windows': [[0, 2]],
-                        'query': meta['sentence'],
+                        'query': meta['query'],
                         'duration': self.clip_length_in_seconds,
                     }
 
@@ -297,60 +280,49 @@ class StartEndDataset(Dataset):
         v_feat = np.concatenate(v_feat_list, axis=1)
         return torch.from_numpy(v_feat), meta
 
-    def _online_sampling(self, qid, vid, meta, index):
-        temp_dict = self._compute_annotations(meta)
-        video_features, start_moment, stop_moment = self._get_video_features(temp_dict, index)
+    def _online_sampling(self, meta):
+        if self.is_val:
+            video_features, start_moment, stop_moment = self._get_video_features_for_validation_test(meta)
+        else:
+            gt_moment = self._get_moment(meta)
+            window = self._calc_window(meta, gt_moment)
+
+            _video_feats = self.video_feats[meta['movie']][window[0]:window[1]]
+
+            start_moment, stop_moment = self._calc_moment(window, gt_moment, meta)
+
         meta = {
-            'qid': qid,
-            'vid': vid,
+            'qid': meta['qid'],
+            'vid': meta['vid'],
             'relevant_windows': [[start_moment, stop_moment]],
-            'query': meta['sentence'],
+            'query': meta['query'],
             'duration': self.clip_length_in_seconds,
         }
-        return video_features, meta
+        return _video_feats, meta
 
-    def _compute_annotations(self, meta):
-        movie = meta['movie']
-        duration = self.clip_length_in_seconds
-        timestamp = meta['ext_timestamps']
-        sentence = meta['sentence']
+    def _get_moment(self, meta):
+
+        timestamp = meta['relevant_windows']
 
         # Process gt annotations -----------------------------------------------------
         if timestamp[0] < timestamp[1]:
-            moment = [max(timestamp[0], 0), min(timestamp[1], duration)]
+            moment = [max(timestamp[0], 0), min(timestamp[1], self.clip_length_in_seconds)]
 
             start = int(moment[0] * self.dataset_fps)
             stop = int(moment[1] * self.dataset_fps)
 
-            # frames_idx is in frame space
-            frames_idx = [start, stop]
+            # is in frame space
+            return [start, stop]
+        else:
+            return [0, 0]
 
-            # Save preprocessed annotations ----------------------------------------------
-            temp_dict = {
-                'movie': movie,
-                'moment': moment,
-                'frames_idx': frames_idx,
-                'sentence': sentence,
-                'movie_duration': duration,
-            }
-        return temp_dict
-
-    def _calc_val_offset(self, index, num_frames):
-        if not bool((index/self.clip_length_in_frames)%1):
-            self.val_offset =  index//self.clip_length_in_frames
-
-        return int(min(max(index - self.val_offset,0), self.clip_length_in_frames - num_frames))
-
-    def _get_video_features(self, meta, index):
-        start_idx, stop_idx = meta['frames_idx']
+    def _calc_window(self, meta, frame_idx):
+        start_idx, stop_idx = frame_idx
         num_frames = stop_idx - start_idx
         assert num_frames > 0, f"Number of frames is {num_frames}"
 
         if num_frames < self.clip_length_in_frames:
-            if not self.is_val:
-                offset = random.sample(range(0, self.clip_length_in_frames - num_frames, 1), 1)[0]
-            else:
-                offset = self._calc_val_offset(index, num_frames)
+            offset = random.sample(range(0, self.clip_length_in_frames - num_frames, 1), 1)[0]
             start_window = max(start_idx - offset, 0)
 
         else:
@@ -361,27 +333,36 @@ class StartEndDataset(Dataset):
         # Compute features for window
         stop_window = start_window + self.clip_length_in_frames
 
-        if not stop_window <= meta['movie_duration'] * self.dataset_fps:
-            stop_window = int(meta['movie_duration'] * self.dataset_fps)
+        if not stop_window <= meta['duration'] * self.dataset_fps:
+            stop_window = int(meta['duration'] * self.dataset_fps)
             start_window = stop_window - self.clip_length_in_frames
 
-        feats = self.video_feats[meta['movie']][start_window:stop_window]
+        return [start_window, stop_window]
 
-        assert feats.shape[0] == self.clip_length_in_frames
+    def _calc_moment(self, window, gt_moment, meta):
+
+        start_window, stop_window = window
+        start_idx, stop_idx = gt_moment
 
         # Compute moment position within the window in seconds
         start_moment = max((start_idx - start_window) / self.dataset_fps, 0)
         stop_moment = min((stop_idx - start_window) / self.dataset_fps, self.clip_length_in_seconds)
 
         if self.use_exact_ts:
-            start_idx = meta['moment'][0] * self.dataset_fps
-            stop_idx = meta['moment'][1] * self.dataset_fps
+            start_idx = meta['relevant_windows'][0] * self.dataset_fps
+            stop_idx = meta['relevant_windows'][1] * self.dataset_fps
             start_moment = max((start_idx - start_window) / self.dataset_fps, 0)
             stop_moment = min((stop_idx - start_window) / self.dataset_fps, self.clip_length_in_seconds)
 
         assert 0 <= start_moment <= self.clip_length_in_seconds, f'start moment ({start_moment}) outside clip'
         assert 0 <= stop_moment <= self.clip_length_in_seconds, f'stop moment ({stop_moment}) outside clip'
 
+        return start_moment, stop_moment
+
+    def _get_video_features_for_validation_test(self, meta):
+        start_window = max(int(meta['relevant_windows'][0]), 0)
+        stop_window = min(int(meta['relevant_windows'][1]), self.clip_length_in_seconds)
+        feats = self.video_feats[meta['movie']][start_window:stop_window]
         return feats, start_moment, stop_moment
 
 

@@ -13,7 +13,8 @@ class MADdataset():
 
     def __init__(self, root, video_feat_file,
                  generated_feats_save_folder, log_folder,
-                 dataset_fps):
+                 dataset_fps, no_save, use_exact_ts,
+                 no_modify_window):
 
         self.sampling_fps = None
         self.sampling_mode = None
@@ -24,14 +25,21 @@ class MADdataset():
         self.root = root
         self.rng = np.random.default_rng(42)
         self.generated_feats_save_path = generated_feats_save_folder
-        Path(f'{root}{generated_feats_save_folder}').mkdir(parents=True, exist_ok=True)
 
         self.log_folder = log_folder
         self.annos = []
         self.old_annos = []
-        print(f'Loading {root}{video_feat_file}')
-        self.video_feats = h5py.File(f'{root}/{video_feat_file}', 'r')
+
         self.discarded_data_counter = 0
+        self.no_save = no_save
+        self.use_exact_ts = use_exact_ts
+        self.no_modify_window = no_modify_window
+        random.seed(42)
+
+        if not self.no_save:
+            Path(f'{root}{generated_feats_save_folder}').mkdir(parents=True, exist_ok=True)
+            print(f'Loading {root}{video_feat_file}')
+            self.video_feats = h5py.File(f'{root}/{video_feat_file}', 'r')
 
     def compute_annotations(self, anno_path, anno_save_path,
                             clip_length_in_seconds, l2_normalize,
@@ -66,7 +74,8 @@ class MADdataset():
 
         annos = json.load(open(f'{self.root}{anno_path}', 'r'))
 
-        print(f'\nSaving to {self.root}{self.generated_feats_save_path}')
+        if not self.no_save:
+            print(f'\nSaving to {self.root}{self.generated_feats_save_path}')
         print(f'\nProcessing {anno_path} ..')
 
         for k, anno in tqdm(list(annos.items())[0:int(len(annos.items()) * process_fraction)]):
@@ -96,17 +105,26 @@ class MADdataset():
                         'sentence': sentence,
                         'movie_duration': duration,
                     }
-                    video_features, start_moment, stop_moment = self._get_video_features(temp_dict, l2_normalize)
+
+                    if not self.no_modify_window:
+                        video_features, start_moment, stop_moment = self._get_video_features(temp_dict, l2_normalize)
+                        duration = self.clip_length_in_seconds
+                    else:
+                        start_moment, stop_moment = anno['ext_timestamps']
+                        duration = anno['movie_duration']
+
                     dump_dict = {
-                        'id': k,
+                        'qid': k,
+                        'vid': temp_dict['movie'],
                         'relevant_windows': [[start_moment, stop_moment]],
                         'query': sentence,
-                        'duration': self.clip_length_in_seconds,
+                        'duration': duration,
                     }
 
                     self.old_annos.append(temp_dict)
                     self.annos.append(dump_dict)
-                    np.savez(f'{self.root}{self.generated_feats_save_path}{k}.npz', features=video_features)
+                    if not self.no_save:
+                        np.savez(f'{self.root}{self.generated_feats_save_path}{k}.npz', features=video_features)
 
                 else:
                     self.discarded_data_counter += 1
@@ -147,7 +165,13 @@ class MADdataset():
         assert num_frames > 0, f"Number of frames is {num_frames}"
 
         if num_frames < self.clip_length_in_frames:
-            offset = random.sample(range(0, self.clip_length_in_frames - num_frames, 1), 1)[0]
+            if not self.no_save and not self.use_exact_ts:
+                offset = random.sample(range(0, self.clip_length_in_frames - num_frames, 1), 1)[0]
+            elif self.no_save and self.use_exact_ts:
+                offset = random.random() * (self.clip_length_in_frames - num_frames)
+            else:
+                raise NotImplementedError
+
             start_window = max(start_idx - offset, 0)
         else:
             center = (start_idx + stop_idx) / 2
@@ -161,16 +185,24 @@ class MADdataset():
             stop_window = int(anno['movie_duration'] * self.dataset_fps)
             start_window = stop_window - self.clip_length_in_frames
 
-        feats = self.video_feats[anno['movie']][start_window:stop_window]
-
-        assert feats.shape[0] == self.clip_length_in_frames
-
         # Compute moment position within the window in seconds
         start_moment = max((start_idx - start_window) / self.dataset_fps, 0)
         stop_moment = min((stop_idx - start_window) / self.dataset_fps, self.clip_length_in_seconds)
 
+        if self.use_exact_ts:
+            start_idx = anno['moment'][0] * self.dataset_fps
+            stop_idx = anno['moment'][1] * self.dataset_fps
+            start_moment = max((start_idx - start_window) / self.dataset_fps, 0)
+            stop_moment = min((stop_idx - start_window) / self.dataset_fps, self.clip_length_in_seconds)
+
         assert 0 <= start_moment <= self.clip_length_in_seconds, f'start moment ({start_moment}) outside clip'
         assert 0 <= stop_moment <= self.clip_length_in_seconds, f'stop moment ({stop_moment}) outside clip'
+
+        if self.no_save:
+            return None, start_moment, stop_moment
+
+        feats = self.video_feats[anno['movie']][start_window:stop_window]
+        assert feats.shape[0] == self.clip_length_in_frames
 
         if l2_normalize:
             feats = self._l2_normalize_np_array(feats)
@@ -209,8 +241,15 @@ if __name__ == "__main__":
     parser.add_argument("--l2_normalize", type=bool, default=False)
 
     parser.add_argument("--process_fraction", type=float, default=1.0)
-    parser.add_argument("--sampling_fps", type=float, default=0.5)
+    parser.add_argument("--sampling_fps", type=float, default=5)
     parser.add_argument("--sampling_mode", type=str, default='None', choices=["None", "random", "fixed", "pooling"])
+    parser.add_argument("--no_save", action='store_true',
+                        help='only export gt files, not frame features')
+    parser.add_argument("--use_exact_ts", action='store_true',
+                        help='use exact timestamps instead of rounded to sampling fps')
+    parser.add_argument("--no_modify_window", action='store_true',
+                        help='use this if you just want to change the format of the annotations to fit the data loader')
+
     args = parser.parse_args()
     # Display settings
     print(dict_to_markdown(vars(args), max_str_len=120))
@@ -219,7 +258,10 @@ if __name__ == "__main__":
                               video_feat_file=args.video_feat_file,
                               generated_feats_save_folder=args.generated_feats_save_folder,
                               log_folder=args.log_folder,
-                              dataset_fps=args.dataset_fps)
+                              dataset_fps=args.dataset_fps,
+                              no_save=args.no_save,
+                              use_exact_ts=args.use_exact_ts,
+                              no_modify_window=args.no_modify_window)
 
     preprocessor.compute_annotations(anno_path=args.anno_path,
                                      anno_save_path=args.anno_save_path,
