@@ -38,13 +38,13 @@ label_loss_coef=4
 ##set for results tracking!
 window_length=180
 sampling_mode=online
-fps=5
-eval_results_dir=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_lrd${lr_drop}_dr${data_ratio}_wl${window_length}_sm${sampling_mode}_fps${fps}_lws${lw_saliency}_lloss${label_loss_coef}_${sheduler}
+sampling_fps=1
+eval_results_dir=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_lrd${lr_drop}_dr${data_ratio}_wl${window_length}_sm${sampling_mode}_fps${sampling_fps}_lws${lw_saliency}_lloss${label_loss_coef}_${sheduler}
 
-#if [ ${window_length} -gt ${max_v_l} ]; then
-#    echo "Window length larger than max_v_l"
-#    exit 0
-#fi
+if [ ${window_length} -gt ${max_v_l} ]; then
+    echo "Window length larger than max_v_l"
+    exit 1
+fi
 
 
 PYTHONPATH=$PYTHONPATH:. python moment_detr/train.py \
@@ -78,4 +78,5 @@ PYTHONPATH=$PYTHONPATH:. python moment_detr/train.py \
 --sampling_mode ${sampling_mode} \
 --cuda_visible_devices ${cuda_visible_devices} \
 --use_exact_ts \
+--sampling_fps ${sampling_fps} \
 ${@:1}

@@ -31,7 +31,7 @@ class StartEndDataset(Dataset):
                  q_feat_type="last_hidden_state",
                  max_q_l=32, max_v_l=75, data_ratio=1.0, ctx_mode="video",
                  normalize_v=True, normalize_t=True, load_labels=True,
-                 clip_len=2, max_windows=5, span_loss_type="l1", txt_drop_ratio=0, sampling_fps=0.5,
+                 clip_len=2, max_windows=5, span_loss_type="l1", txt_drop_ratio=0, sampling_fps=5,
                  sampling_mode='none', lang_feat_path='CLIP_L14_language_tokens_features',
                  dataset_fps=5, v_feat_dim=768, use_exact_ts=False):
 
@@ -102,13 +102,9 @@ class StartEndDataset(Dataset):
 
         model_inputs = dict()
         meta = self.data[index]
-        t0 = time.time()
         model_inputs["query_feat"] = self._get_query_feat_by_qid(meta['qid'])  # (Dq, ) or (Lq, Dq)
-        #print(f'query loading: {time.time()-t0}')
         if self.use_video and self.using_mat_dataset:
-            t0 = time.time()
             model_inputs["video_feat"], meta = self._get_video_feat_by_vid(meta)  # (Lv, Dv)
-            #print(f'video feature loading: {time.time() - t0}')
             ctx_l = len(model_inputs["video_feat"])
 
         else:
@@ -253,7 +249,7 @@ class StartEndDataset(Dataset):
                 try:
                     _feat = np.load(_feat_path)["features"].astype(np.float32)[:self.max_v_l]
                 except Exception as e:
-                    print(f'{e}\nFile: {_feat_path}')
+                    logger.warning('{e}\nFile: {_feat_path}')
                     _feat = np.zeros(shape=(self.max_v_l, 768))
 
             elif self.sampling_mode == 'online':
@@ -261,7 +257,7 @@ class StartEndDataset(Dataset):
                     _feat, meta = self._online_sampling(meta)
                     _feat = _feat.astype(np.float32)[:self.max_v_l]
                 except Exception as e:
-                    print(f'\n{e}')
+                    logger.warning(f'\n{e}')
                     temp_dim = self.v_feat_dim - 2 if self.use_tef else self.v_feat_dim
                     _feat = np.zeros(shape=(self.max_v_l, temp_dim)).astype(np.float32)[:self.max_v_l]
                     meta = {
@@ -296,6 +292,8 @@ class StartEndDataset(Dataset):
             start_moment, stop_moment = meta["relevant_windows"][0]
 
         _video_feats = self.video_feats[meta['vid']][window[0]:window[1]]
+        if self.sampling_fps != self.dataset_fps:
+            _video_feats = _video_feats[::int(self.dataset_fps/self.sampling_fps)]
 
         meta = {
             'qid': meta['qid'],
