@@ -90,7 +90,7 @@ class StartEndDataset(Dataset):
     def load_data(self):
         datalist = load_jsonl(self.data_path)
         if self.data_ratio != 1:
-            n_examples = int(len(datalist[0]) * self.data_ratio)
+            n_examples = int(len(datalist) * self.data_ratio)
             datalist = datalist[:n_examples]
             logger.info("Using {}% of the data: {} examples"
                         .format(self.data_ratio * 100, n_examples))
@@ -260,8 +260,9 @@ class StartEndDataset(Dataset):
                     _feat, meta = self._online_sampling(meta)
                     _feat = _feat.astype(np.float32)[:self.max_v_l]
                 except Exception as e:
-                    print(f'{e}\n')
-                    _feat = np.zeros(shape=(self.max_v_l, self.v_feat_dim))
+                    print(f'\n{e}')
+                    temp_dim = self.v_feat_dim-2 if self.use_tef else self.v_feat_dim
+                    _feat = np.zeros(shape=(self.max_v_l, temp_dim)).astype(np.float32)[:self.max_v_l]
                     meta = {
                         'qid': meta['qid'],
                         'vid': meta['vid'],

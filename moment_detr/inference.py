@@ -158,29 +158,13 @@ def compute_mr_results(model, eval_loader, opt, epoch_i=None, criterion=None, tb
         for k, v in loss_meters.items():
             tb_writer.add_scalar("Eval/{}".format(k), v.avg, epoch_i + 1)
 
-    # TODO set clip length here!!
-    try:
-        max_ts_val = float(opt.v_feat_dirs[0].split("_")[-2])
-        assert type(max_ts_val) == float
-        assert max_ts_val > 0
-
-    except Exception as e:
-        try:
-            max_ts_val = float(opt.v_feat_dirs[0].split("_")[-2][2:])
-            assert type(max_ts_val) == float
-            assert max_ts_val > 0
-        except:
-            pass
-        print(e)
-        print("max_ts_value for PostProcessor set to 180")
-        max_ts_val = 180
-
+    # TODO no postprocessing here
     post_processor = PostProcessorDETR(
-        clip_length=opt.clip_length, min_ts_val=0, max_ts_val=max_ts_val,
+        clip_length=opt.clip_length, min_ts_val=0, max_ts_val=opt.max_v_l/opt.dataset_fps,
         min_w_l=0, max_w_l=500, move_window_method="left",
         process_func_names=("clip_ts", "round_multiple")
     )
-    mr_res = post_processor(mr_res)
+    #mr_res = post_processor(mr_res)
     return mr_res, loss_meters
 
 
