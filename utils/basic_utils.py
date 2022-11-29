@@ -23,11 +23,14 @@ def load_json(filename):
 
 
 def save_json(data, filename, save_pretty=False, sort_keys=False):
-    with open(filename, "w") as f:
-        if save_pretty:
-            f.write(json.dumps(data, indent=4, sort_keys=sort_keys))
-        else:
-            json.dump(data, f)
+    try:
+        with open(filename, "w") as f:
+            if save_pretty:
+                f.write(json.dumps(data, indent=4, sort_keys=sort_keys))
+            else:
+                json.dump(data, f)
+    except Exception as e:
+        print(e)
 
 
 def load_jsonl(filename):
@@ -36,9 +39,12 @@ def load_jsonl(filename):
 
 
 def save_jsonl(data, filename):
-    """data is a list"""
-    with open(filename, "w") as f:
-        f.write("\n".join([json.dumps(e) for e in data]))
+    try:
+        """data is a list"""
+        with open(filename, "w") as f:
+            f.write("\n".join([json.dumps(e) for e in data]))
+    except Exception as e:
+        print(e)
 
 
 def save_lines(list_of_str, filepath):

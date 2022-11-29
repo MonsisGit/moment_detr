@@ -46,7 +46,10 @@ def eval_epoch_post_processing(submission, opt, gt_data, save_submission_filenam
     # IOU_THDS = (0.5, 0.7)
     logger.info("Saving/Evaluating before nms results")
     submission_path = os.path.join(opt.results_dir, save_submission_filename)
-    save_jsonl(submission, submission_path)
+    try:
+        save_jsonl(submission, submission_path)
+    except Exception as e:
+        print(e)
 
     if opt.eval_split_name in ["val", "test"]:  # since test_public has no GT
         metrics = eval_submission(
@@ -129,15 +132,10 @@ def compute_mr_results(model, eval_loader, opt, epoch_i=None, criterion=None, tb
                 cur_ranked_preds = sorted(cur_ranked_preds, key=lambda x: x[2], reverse=True)
             cur_ranked_preds = [[float(f"{e:.4f}") for e in row] for row in cur_ranked_preds]
 
-            if opt.sampling_mode == 'online':
-                qid_temp = meta["qid"]
-                vid_temp = meta["vid"]
-            else:
-                qid_temp = vid_temp = meta["id"]
             cur_query_pred = dict(
-                qid=qid_temp,
+                qid=meta['qid'],
                 query=meta["query"],
-                vid=vid_temp,
+                vid=meta['vid'],
                 pred_relevant_windows=cur_ranked_preds,
                 pred_saliency_scores=saliency_scores[idx]
             )

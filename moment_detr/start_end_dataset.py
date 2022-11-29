@@ -1,12 +1,9 @@
-import traceback
 import os
 import torch
 from torch.utils.data import Dataset
 import numpy as np
-from tqdm import tqdm
-import copy
+import time
 import h5py
-import pickle
 import random
 import logging
 from os.path import join, exists
@@ -91,6 +88,8 @@ class StartEndDataset(Dataset):
         datalist = load_jsonl(self.data_path)
         if self.data_ratio != 1:
             n_examples = int(len(datalist) * self.data_ratio)
+            if n_examples == 0:
+                n_examples = 1
             datalist = datalist[:n_examples]
             logger.info("Using {}% of the data: {} examples"
                         .format(self.data_ratio * 100, n_examples))
@@ -103,11 +102,13 @@ class StartEndDataset(Dataset):
 
         model_inputs = dict()
         meta = self.data[index]
-
+        t0 = time.time()
         model_inputs["query_feat"] = self._get_query_feat_by_qid(meta['qid'])  # (Dq, ) or (Lq, Dq)
-
+        #print(f'query loading: {time.time()-t0}')
         if self.use_video and self.using_mat_dataset:
+            t0 = time.time()
             model_inputs["video_feat"], meta = self._get_video_feat_by_vid(meta)  # (Lv, Dv)
+            #print(f'video feature loading: {time.time() - t0}')
             ctx_l = len(model_inputs["video_feat"])
 
         else:
@@ -261,7 +262,7 @@ class StartEndDataset(Dataset):
                     _feat = _feat.astype(np.float32)[:self.max_v_l]
                 except Exception as e:
                     print(f'\n{e}')
-                    temp_dim = self.v_feat_dim-2 if self.use_tef else self.v_feat_dim
+                    temp_dim = self.v_feat_dim - 2 if self.use_tef else self.v_feat_dim
                     _feat = np.zeros(shape=(self.max_v_l, temp_dim)).astype(np.float32)[:self.max_v_l]
                     meta = {
                         'qid': meta['qid'],
@@ -363,7 +364,6 @@ class StartEndDataset(Dataset):
         assert 0 <= stop_moment <= self.clip_length_in_seconds, f'stop moment ({stop_moment}) outside clip'
 
         return start_moment, stop_moment
-
 
 
 def start_end_collate(batch):

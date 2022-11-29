@@ -139,7 +139,7 @@ def train(model, criterion, optimizer, lr_scheduler, train_dataset, val_dataset,
         collate_fn=start_end_collate,
         batch_size=opt.bsz,
         num_workers=opt.num_workers,
-        shuffle=True,
+        shuffle=not opt.no_shuffle,
         pin_memory=opt.pin_memory
     )
 
@@ -154,7 +154,6 @@ def train(model, criterion, optimizer, lr_scheduler, train_dataset, val_dataset,
     nm_epochs_warmup = 3
     for epoch_i in trange(start_epoch, opt.n_epoch, desc="Epoch"):
         if epoch_i > -1:
-            train_epoch(model, criterion, train_loader, optimizer, opt, epoch_i, tb_writer)
 
             if opt.scheduler == 'step_lr_warmup' and epoch_i < nm_epochs_warmup:
                 lr_scheduler.optimizer.param_groups[0]['lr'] = \
@@ -162,6 +161,7 @@ def train(model, criterion, optimizer, lr_scheduler, train_dataset, val_dataset,
             if opt.scheduler == 'step_lr_warmup' and epoch_i == nm_epochs_warmup:
                 lr_scheduler.optimizer.param_groups[0]['lr'] = lr_scheduler.optimizer.defaults['lr']
 
+            train_epoch(model, criterion, train_loader, optimizer, opt, epoch_i, tb_writer)
             lr_scheduler.step()
 
         eval_epoch_interval = 1
@@ -188,7 +188,7 @@ def train(model, criterion, optimizer, lr_scheduler, train_dataset, val_dataset,
                 tb_writer.add_scalar(f"Eval/{k}", float(v), epoch_i + 1)
 
             stop_score = metrics["brief"]["MR-R1@0.5"]
-            if stop_score > prev_best_score:
+            if stop_score > prev_best_score or epoch_i == 0:
                 es_cnt = 0
                 prev_best_score = stop_score
 

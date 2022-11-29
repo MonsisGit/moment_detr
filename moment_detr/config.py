@@ -45,7 +45,7 @@ class BaseOptions(object):
         parser.add_argument("--lr_drop", type=int, default=400, help="drop learning rate to 1/10 every lr_drop epochs")
         parser.add_argument("--wd", type=float, default=1e-4, help="weight decay")
         parser.add_argument("--n_epoch", type=int, default=200, help="number of epochs to run")
-        parser.add_argument("--max_es_cnt", type=int, default=50,
+        parser.add_argument("--max_es_cnt", type=int, default=200,
                             help="number of epochs to early stop, use -1 to disable early stop")
         parser.add_argument("--bsz", type=int, default=32, help="mini-batch size")
         parser.add_argument("--eval_bsz", type=int, default=32,
@@ -157,9 +157,10 @@ class BaseOptions(object):
                             help="FPS sampling rate of the used dataset (MAD=5)")
         parser.add_argument("--use_exact_ts", action="store_true",
                             help="use exact timestamps instead of rounded to sampling fps")
+        parser.add_argument("--no_shuffle", action="store_true",
+                            help="dont shuffle training data")
 
         self.parser = parser
-
 
     def display_save(self, opt):
         args = vars(opt)
