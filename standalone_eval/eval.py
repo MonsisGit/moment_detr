@@ -40,10 +40,10 @@ def compute_mr_ap(submission, ground_truth, iou_thds=np.linspace(0.5, 0.95, 10),
     for d in ground_truth:
         gt_windows = d["relevant_windows"][:max_gt_windows] \
             if max_gt_windows is not None else d["relevant_windows"]
-        qid = d["id"]
+        qid = d["qid"]
         for w in gt_windows:
             gt_qid2data[qid].append({
-                "video-id": d["id"],
+                "video-id": d["qid"],
                 "t-start": w[0],
                 "t-end": w[1]
             })
@@ -86,7 +86,7 @@ def compute_mr_rk(submission, ground_truth, iou_thds=[0.1, 0.3, 0.5], top_ks=[1,
         iou_thd2recall_at_d = []
         for d in ground_truth:
             cur_gt_windows = d["relevant_windows"]
-            cur_qid = d["id"]
+            cur_qid = d["qid"]
             if len(cur_gt_windows) > 0:  # select the GT window that has the highest IoU
                 if len(pred_qid2window) >= top_k:
                     curr_pred_qid2window = np.array(pred_qid2window[cur_qid])
@@ -113,7 +113,7 @@ def compute_mr_r1(submission, ground_truth, iou_thds=np.linspace(0.5, 0.95, 10))
     gt_qid2window = {}
     for d in ground_truth:
         cur_gt_windows = d["relevant_windows"]
-        cur_qid = d["id"]
+        cur_qid = d["qid"]
         cur_max_iou_idx = 0
         if len(cur_gt_windows) > 0:  # select the GT window that has the highest IoU
             cur_ious = compute_temporal_iou_batch_cross(
@@ -160,10 +160,8 @@ def get_data_by_range(submission, ground_truth, len_range):
             d = copy.deepcopy(d)
             d["relevant_windows"] = rel_windows_in_range
             ground_truth_in_range.append(d)
-            try:
-                gt_qids_in_range.add(d["id"])
-            except:
-                gt_qids_in_range.add(d["qid"])
+            gt_qids_in_range.add(d["qid"])
+
 
 
     # keep only submissions for ground_truth_in_range
@@ -297,7 +295,7 @@ def eval_highlight(submission, ground_truth, verbose=True):
         verbose:
     """
     qid2preds = {d["qid"]: d for d in submission}
-    qid2gt_scores_full_range = {d["id"]: mk_gt_scores(d) for d in ground_truth}  # scores in range [0, 4]
+    qid2gt_scores_full_range = {d["qid"]: mk_gt_scores(d) for d in ground_truth}  # scores in range [0, 4]
     # gt_saliency_score_min: int, in [0, 1, 2, 3, 4]. The minimum score for a positive clip.
     gt_saliency_score_min_list = [2, 3, 4]
     saliency_score_names = ["Fair", "Good", "VeryGood"]
@@ -345,10 +343,8 @@ def eval_submission(submission, ground_truth, verbose=True, match_number=True):
 
     """
     pred_qids = set([e["qid"] for e in submission])
-    try:
-        gt_qids = set([e["id"] for e in ground_truth])
-    except:
-        gt_qids = set(ground_truth[0].keys())
+    gt_qids = set([e["qid"] for e in ground_truth])
+
 
     if match_number:
         assert pred_qids == gt_qids, \
@@ -357,10 +353,8 @@ def eval_submission(submission, ground_truth, verbose=True, match_number=True):
     else:  # only leave the items that exists in both submission and ground_truth
         shared_qids = pred_qids.intersection(gt_qids)
         submission = [e for e in submission if e["qid"] in shared_qids]
-        try:
-            ground_truth = [e for e in ground_truth if e["id"] in shared_qids]
-        except:
-            ground_truth = [e for e in ground_truth if e["qid"] in shared_qids]
+        ground_truth = [e for e in ground_truth if e["qid"] in shared_qids]
+
 
 
     eval_metrics = {}

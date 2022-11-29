@@ -107,19 +107,21 @@ class MADdataset():
                     }
 
                     if not self.no_modify_window:
-                        video_features, start_moment, stop_moment = self._get_video_features(temp_dict, l2_normalize)
+                        video_features, moment, window = self._get_video_features(temp_dict, l2_normalize)
                         duration = self.clip_length_in_seconds
                     else:
-                        start_moment, stop_moment = anno['ext_timestamps']
+                        moment = anno['ext_timestamps']
                         duration = anno['movie_duration']
 
                     dump_dict = {
                         'qid': k,
                         'vid': temp_dict['movie'],
-                        'relevant_windows': [[start_moment, stop_moment]],
+                        'relevant_windows': [[moment[0], moment[1]]],
                         'query': sentence,
                         'duration': duration,
                     }
+                    if not self.no_modify_window:
+                        dump_dict['window'] = window
 
                     self.old_annos.append(temp_dict)
                     self.annos.append(dump_dict)
@@ -165,13 +167,8 @@ class MADdataset():
         assert num_frames > 0, f"Number of frames is {num_frames}"
 
         if num_frames < self.clip_length_in_frames:
-            if not self.no_save and not self.use_exact_ts:
-                offset = random.sample(range(0, self.clip_length_in_frames - num_frames, 1), 1)[0]
-            elif self.no_save and self.use_exact_ts:
-                offset = random.random() * (self.clip_length_in_frames - num_frames)
-            else:
-                raise NotImplementedError
 
+            offset = random.sample(range(0, self.clip_length_in_frames - num_frames, 1), 1)[0]
             start_window = max(start_idx - offset, 0)
         else:
             center = (start_idx + stop_idx) / 2
@@ -199,7 +196,7 @@ class MADdataset():
         assert 0 <= stop_moment <= self.clip_length_in_seconds, f'stop moment ({stop_moment}) outside clip'
 
         if self.no_save:
-            return None, start_moment, stop_moment
+            return None, [start_moment, stop_moment], [start_window, stop_window]
 
         feats = self.video_feats[anno['movie']][start_window:stop_window]
         assert feats.shape[0] == self.clip_length_in_frames
@@ -208,7 +205,7 @@ class MADdataset():
             feats = self._l2_normalize_np_array(feats)
         if self.sampling_mode != "None":
             feats = self._sampling(feats)
-        return feats, start_moment, stop_moment
+        return feats, [start_moment, stop_moment],[start_window, stop_window]
 
     def _sampling(self, feats):
         if self.sampling_mode == 'fixed':

@@ -4,7 +4,7 @@ l2_normalize=False
 sampling_fps=5
 clip_length_in_seconds=180
 process_fraction=1
-split=train
+split=val
 use_exact_ts=True
 
 if [[ ${sampling_mode} = None ]] && [[ ${sampling_fps} != ${dataset_fps} ]]
@@ -26,4 +26,3 @@ PYTHONPATH=$PYTHONPATH:. python utils/preprocess_mad.py \
 --dataset_fps ${dataset_fps} \
 --no_save \
 --use_exact_ts \
---no_modify_window

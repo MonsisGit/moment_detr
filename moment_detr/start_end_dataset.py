@@ -263,6 +263,8 @@ class StartEndDataset(Dataset):
                     print(f'{e}\n')
                     _feat = np.zeros(shape=(self.max_v_l, self.v_feat_dim))
                     meta = {
+                        'qid': meta['qid'],
+                        'vid': meta['vid'],
                         'relevant_windows': [[0, 2]],
                         'query': meta['query'],
                         'duration': self.clip_length_in_seconds,
@@ -281,15 +283,17 @@ class StartEndDataset(Dataset):
         return torch.from_numpy(v_feat), meta
 
     def _online_sampling(self, meta):
-        if self.is_val:
-            video_features, start_moment, stop_moment = self._get_video_features_for_validation_test(meta)
+
+        if not self.is_val:
+            gt_moment = self._get_gt_moment(meta)
+            window = self._sample_window(gt_moment, meta)
+            start_moment, stop_moment = self._calc_new_moment(window, gt_moment, meta)
+
         else:
-            gt_moment = self._get_moment(meta)
-            window = self._calc_window(meta, gt_moment)
+            window = [max(meta['window'][0], 0), min(meta['window'][1], self.video_feats[meta['vid']].shape[0])]
+            start_moment, stop_moment = meta["relevant_windows"][0]
 
-            _video_feats = self.video_feats[meta['movie']][window[0]:window[1]]
-
-            start_moment, stop_moment = self._calc_moment(window, gt_moment, meta)
+        _video_feats = self.video_feats[meta['vid']][window[0]:window[1]]
 
         meta = {
             'qid': meta['qid'],
@@ -300,13 +304,13 @@ class StartEndDataset(Dataset):
         }
         return _video_feats, meta
 
-    def _get_moment(self, meta):
+    def _get_gt_moment(self, meta):
 
-        timestamp = meta['relevant_windows']
+        timestamp = meta['relevant_windows'][0]
 
         # Process gt annotations -----------------------------------------------------
         if timestamp[0] < timestamp[1]:
-            moment = [max(timestamp[0], 0), min(timestamp[1], self.clip_length_in_seconds)]
+            moment = [max(timestamp[0], 0), min(timestamp[1], meta['duration'])]
 
             start = int(moment[0] * self.dataset_fps)
             stop = int(moment[1] * self.dataset_fps)
@@ -316,7 +320,7 @@ class StartEndDataset(Dataset):
         else:
             return [0, 0]
 
-    def _calc_window(self, meta, frame_idx):
+    def _sample_window(self, frame_idx, meta):
         start_idx, stop_idx = frame_idx
         num_frames = stop_idx - start_idx
         assert num_frames > 0, f"Number of frames is {num_frames}"
@@ -334,12 +338,12 @@ class StartEndDataset(Dataset):
         stop_window = start_window + self.clip_length_in_frames
 
         if not stop_window <= meta['duration'] * self.dataset_fps:
-            stop_window = int(meta['duration'] * self.dataset_fps)
+            stop_window = int(np.floor(meta['duration'] * self.dataset_fps))
             start_window = stop_window - self.clip_length_in_frames
 
         return [start_window, stop_window]
 
-    def _calc_moment(self, window, gt_moment, meta):
+    def _calc_new_moment(self, window, gt_moment, meta):
 
         start_window, stop_window = window
         start_idx, stop_idx = gt_moment
@@ -349,8 +353,8 @@ class StartEndDataset(Dataset):
         stop_moment = min((stop_idx - start_window) / self.dataset_fps, self.clip_length_in_seconds)
 
         if self.use_exact_ts:
-            start_idx = meta['relevant_windows'][0] * self.dataset_fps
-            stop_idx = meta['relevant_windows'][1] * self.dataset_fps
+            start_idx = meta['relevant_windows'][0][0] * self.dataset_fps
+            stop_idx = meta['relevant_windows'][0][1] * self.dataset_fps
             start_moment = max((start_idx - start_window) / self.dataset_fps, 0)
             stop_moment = min((stop_idx - start_window) / self.dataset_fps, self.clip_length_in_seconds)
 
@@ -359,11 +363,6 @@ class StartEndDataset(Dataset):
 
         return start_moment, stop_moment
 
-    def _get_video_features_for_validation_test(self, meta):
-        start_window = max(int(meta['relevant_windows'][0]), 0)
-        stop_window = min(int(meta['relevant_windows'][1]), self.clip_length_in_seconds)
-        feats = self.video_feats[meta['movie']][start_window:stop_window]
-        return feats, start_moment, stop_moment
 
 
 def start_end_collate(batch):
