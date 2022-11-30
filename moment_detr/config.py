@@ -61,7 +61,7 @@ class BaseOptions(object):
 
         # Data config
         parser.add_argument("--max_q_l", type=int, default=200)
-        parser.add_argument("--max_v_l", type=int, default=500)
+        parser.add_argument("--max_v_l", type=int, default=900)
         parser.add_argument("--clip_length", type=float, default=2)
         parser.add_argument("--max_windows", type=int, default=5)
 
