@@ -72,6 +72,25 @@ def compute_mr_ap(submission, ground_truth, iou_thds=np.linspace(0.5, 0.95, 10),
     iou_thd2ap = {k: float(f"{100 * v:.2f}") for k, v in iou_thd2ap.items()}
     return iou_thd2ap
 
+def nms(moments, scores, topk, thresh, relative_fps):
+    scores, ranks = scores.sort(descending=True)
+    moments = moments[ranks]
+    moments = moments / relative_fps
+
+    suppressed = torch.zeros_like(moments[:,0], dtype=torch.bool)
+    numel = suppressed.numel()
+    for i in range(numel - 1):
+        if suppressed[i]:
+            continue
+        mask = iou(moments[i+1:], moments[i]) > thresh
+        suppressed[i+1:][mask] = True
+        if i % topk.item() == 0:
+            if (~suppressed[:i]).sum() >= topk:
+                break
+
+    moments = moments[~suppressed]
+    return moments[:topk]
+
 
 def compute_mr_rk(submission, ground_truth, iou_thds=[0.1, 0.3, 0.5], top_ks=[1, 5, 10]):
     """If a predicted segment has IoU >= iou_thd with one of the 1st GT segment, we define it positive"""
@@ -314,7 +333,7 @@ def eval_highlight(submission, ground_truth, verbose=True):
     return highlight_det_metrics
 
 
-def eval_submission(submission, ground_truth, verbose=True, match_number=True):
+def eval_submission(submission, ground_truth, verbose=True, match_number=True, is_nms=False):
     """
     Args:
         submission: list(dict), each dict is {
@@ -364,16 +383,24 @@ def eval_submission(submission, ground_truth, verbose=True, match_number=True):
             submission, ground_truth, verbose=verbose)
 
         eval_metrics.update(moment_ret_scores)
-        moment_ret_scores_brief = {
-            "MR-mAP": moment_ret_scores["full"]["MR-mAP"]["average"],
+        if is_nms:
+            moment_ret_scores_brief = {
+                "MR-R1@0.5 (nms)": moment_ret_scores["full"]["MR-RK"]["0.5@1"],
+                "MR-R5@0.5 (nms)": moment_ret_scores["full"]["MR-RK"]["0.5@5"],
+                "MR-R10@0.5 (nms)": moment_ret_scores["full"]["MR-RK"]["0.5@10"],
 
-            "MR-R1@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@1"],
-            "MR-R5@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@5"],
-            "MR-R10@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@10"],
-            "(short) MR-R1@0.5": moment_ret_scores["short_0_10"]["MR-RK"]["0.5@1"],
-            "(middle) MR-R1@0.5": moment_ret_scores["middle_10_20"]["MR-RK"]["0.5@1"],
-            "(long) MR-R1@0.5": moment_ret_scores["long_20_30"]["MR-RK"]["0.5@1"],
-        }
+            }
+        else:
+            moment_ret_scores_brief = {
+                "MR-mAP": moment_ret_scores["full"]["MR-mAP"]["average"],
+
+                "MR-R1@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@1"],
+                "MR-R5@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@5"],
+                "MR-R10@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@10"],
+                "(short) MR-R1@0.5": moment_ret_scores["short_0_10"]["MR-RK"]["0.5@1"],
+                "(middle) MR-R1@0.5": moment_ret_scores["middle_10_20"]["MR-RK"]["0.5@1"],
+                "(long) MR-R1@0.5": moment_ret_scores["long_20_30"]["MR-RK"]["0.5@1"],
+            }
         eval_metrics_brief.update(
             sorted([(k, v) for k, v in moment_ret_scores_brief.items()], key=lambda x: x[0]))
 

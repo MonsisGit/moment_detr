@@ -76,7 +76,8 @@ def eval_epoch_post_processing(submission, opt, gt_data, save_submission_filenam
         if opt.eval_split_name == "val":
             metrics_nms = eval_submission(
                 submission_after_nms, gt_data,
-                verbose=opt.debug, match_number=not opt.debug
+                verbose=opt.debug, match_number=not opt.debug,
+                is_nms=True
             )
             save_metrics_nms_path = submission_nms_path.replace(".jsonl", "_metrics.json")
             save_json(metrics_nms, save_metrics_nms_path, save_pretty=True, sort_keys=False)

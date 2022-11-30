@@ -30,6 +30,7 @@ max_q_l=100
 #this must be fps * window length
 max_v_l=150
 sheduler=step_lr_warmup
+max_es_cnt=10
 
 ## Losses
 lw_saliency=4
@@ -79,4 +80,5 @@ PYTHONPATH=$PYTHONPATH:. python moment_detr/train.py \
 --cuda_visible_devices ${cuda_visible_devices} \
 --use_exact_ts \
 --sampling_fps ${sampling_fps} \
+--max_es_cnt ${max_es_cnt} \
 ${@:1}
