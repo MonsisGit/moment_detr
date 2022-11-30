@@ -30,7 +30,8 @@ max_q_l=100
 #this must be fps * window length
 max_v_l=150
 sheduler=step_lr_warmup
-max_es_cnt=10
+max_es_cnt=10 #early stopping patience
+use_warump=True
 
 ## Losses
 lw_saliency=4
@@ -78,7 +79,8 @@ PYTHONPATH=$PYTHONPATH:. python moment_detr/train.py \
 --eval_bsz ${bsz} \
 --sampling_mode ${sampling_mode} \
 --cuda_visible_devices ${cuda_visible_devices} \
---use_exact_ts \
 --sampling_fps ${sampling_fps} \
 --max_es_cnt ${max_es_cnt} \
+--use_exact_ts \
+--use_warmup \
 ${@:1}

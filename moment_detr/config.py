@@ -7,7 +7,7 @@ from utils.basic_utils import mkdirp, load_json, save_json, make_zipfile, dict_t
 
 
 class BaseOptions(object):
-    #saved_option_filename = "opt.json"
+    # saved_option_filename = "opt.json"
     ckpt_filename = "model.ckpt"
     tensorboard_log_dir = "tensorboard_log"
     train_log_filename = "train.log.txt"
@@ -142,17 +142,19 @@ class BaseOptions(object):
                                  "(or non-minimum suppression for distance)"
                                  "to post-processing the predictions. "
                                  "-1: do not use nms. [0, 1]")
-        #long_nlq
+        # long_nlq
         parser.add_argument('--sampling_fps', default=5, type=float, help="dataloader sampling fps")
         parser.add_argument("--saved_option_filename", type=str, default="opt_mad.json")
         parser.add_argument("--cuda_visible_devices", nargs="*", type=int, default=None,
                             help="list of cuda visible devices")
         parser.add_argument("--eval_results_dir", type=str, default=None,
-                                 help="dir to save results, if not set, fall back to training results_dir")
+                            help="dir to save results, if not set, fall back to training results_dir")
         parser.add_argument("--sampling_mode", type=str, default="offline",
-                                 help="use offline or online sampling", choices=['offline','online'])
+                            help="use offline or online sampling", choices=['offline', 'online'])
         parser.add_argument("--lang_feat_path", type=str, default="CLIP_L14_language_tokens_features.h5")
-        parser.add_argument("--scheduler", type=str, default="step_lr", choices=['step_lr', 'cosnl_wrmp','step_lr_warmup'])
+        parser.add_argument("--scheduler", type=str, default="step_lr", choices=['step_lr', 'cosnl', 'reduce_plateau'])
+        parser.add_argument("--use_warmup", action="store_true",
+                            help="use warump for 3 epochs")
         parser.add_argument("--dataset_fps", type=float, default=5,
                             help="FPS sampling rate of the used dataset (MAD=5)")
         parser.add_argument("--use_exact_ts", action="store_true",
@@ -190,7 +192,7 @@ class BaseOptions(object):
                                "max_pred_l", "min_pred_l",
                                "resume", "resume_all", "no_sort_results"]:
                     setattr(opt, arg, saved_options[arg])
-                    #TODO fix
+                    # TODO fix
             # opt.no_core_driver = True
             if opt.eval_results_dir is not None:
                 opt.results_dir = opt.eval_results_dir
@@ -200,8 +202,8 @@ class BaseOptions(object):
 
             ctx_str = opt.ctx_mode + "_sub" if any(["sub_ctx" in p for p in opt.v_feat_dirs]) else opt.ctx_mode
             opt.results_dir = os.path.join(opt.results_root, opt.eval_results_dir)
-                                          # "-".join([opt.dset_name, ctx_str, opt.exp_id,
-                                                 #    time.strftime("%Y_%m_%d_%H_%M_%S")]))
+            # "-".join([opt.dset_name, ctx_str, opt.exp_id,
+            #    time.strftime("%Y_%m_%d_%H_%M_%S")]))
             mkdirp(opt.results_dir)
             # save a copy of current code
             code_dir = os.path.dirname(os.path.realpath(__file__))
@@ -239,7 +241,7 @@ class TestOptions(BaseOptions):
         BaseOptions.initialize(self)
         # also need to specify --eval_split_name
         self.parser.add_argument("--eval_id", type=str, help="evaluation id")
-        #self.parser.add_argument("--eval_results_dir", type=str, default=None,
-                                 #help="dir to save results, if not set, fall back to training results_dir")
+        # self.parser.add_argument("--eval_results_dir", type=str, default=None,
+        # help="dir to save results, if not set, fall back to training results_dir")
         self.parser.add_argument("--model_dir", type=str,
                                  help="dir contains the model file, will be converted to absolute path afterwards")

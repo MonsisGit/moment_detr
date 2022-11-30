@@ -152,17 +152,20 @@ def train(model, criterion, optimizer, lr_scheduler, train_dataset, val_dataset,
         start_epoch = opt.start_epoch
     save_submission_filename = "latest_{}_{}_preds.jsonl".format(opt.dset_name, opt.eval_split_name)
     nm_epochs_warmup = 3
+
     for epoch_i in trange(start_epoch, opt.n_epoch, desc="Epoch"):
         if epoch_i > -1:
 
-            if opt.scheduler == 'step_lr_warmup' and epoch_i < nm_epochs_warmup:
+            if opt.use_warmup and epoch_i < nm_epochs_warmup:
                 lr_scheduler.optimizer.param_groups[0]['lr'] = \
                     (0.01 + (epoch_i / nm_epochs_warmup)) * lr_scheduler.optimizer.defaults['lr']
-            if opt.scheduler == 'step_lr_warmup' and epoch_i == nm_epochs_warmup:
+            if opt.use_warmup and epoch_i == nm_epochs_warmup:
                 lr_scheduler.optimizer.param_groups[0]['lr'] = lr_scheduler.optimizer.defaults['lr']
 
             train_epoch(model, criterion, train_loader, optimizer, opt, epoch_i, tb_writer)
-            lr_scheduler.step()
+
+            if not opt.scheduler == 'reduce_plateau':
+                lr_scheduler.step()
 
         eval_epoch_interval = 1
         if opt.eval_path is not None and (epoch_i + 1) % eval_epoch_interval == 0:
@@ -170,6 +173,8 @@ def train(model, criterion, optimizer, lr_scheduler, train_dataset, val_dataset,
                 metrics_no_nms, metrics_nms, eval_loss_meters, latest_file_paths = \
                     eval_epoch(model, val_dataset, opt, save_submission_filename, epoch_i, criterion, tb_writer)
 
+                if opt.scheduler == 'reduce_plateau':
+                    lr_scheduler.step(eval_loss_meters['loss_overall'].val)
             # log
             to_write = opt.eval_log_txt_formatter.format(
                 time_str=time.strftime("%Y_%m_%d_%H_%M_%S"),
@@ -187,7 +192,7 @@ def train(model, criterion, optimizer, lr_scheduler, train_dataset, val_dataset,
             for k, v in metrics["brief"].items():
                 tb_writer.add_scalar(f"Eval/{k}", float(v), epoch_i + 1)
 
-            #writing no_nms results to tensorboard
+            # writing no_nms results to tensorboard
             for k, v in metrics_nms["brief"].items():
                 tb_writer.add_scalar(f"Eval/{k}", float(v), epoch_i + 1)
 

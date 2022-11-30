@@ -9,6 +9,7 @@ import torch
 import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
 from torch.utils.data import DataLoader
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from ignite.handlers.param_scheduler import create_lr_scheduler_with_warmup
 
@@ -159,11 +160,11 @@ def compute_mr_results(model, eval_loader, opt, epoch_i=None, criterion=None, tb
 
     # TODO no postprocessing here
     post_processor = PostProcessorDETR(
-        clip_length=opt.clip_length, min_ts_val=0, max_ts_val=opt.max_v_l/opt.dataset_fps,
+        clip_length=opt.clip_length, min_ts_val=0, max_ts_val=opt.max_v_l / opt.dataset_fps,
         min_w_l=0, max_w_l=500, move_window_method="left",
         process_func_names=("clip_ts", "round_multiple")
     )
-    #mr_res = post_processor(mr_res)
+    # mr_res = post_processor(mr_res)
     return mr_res, loss_meters
 
 
@@ -210,11 +211,18 @@ def setup_model(opt):
 
     param_dicts = [{"params": [p for n, p in model.named_parameters() if p.requires_grad]}]
     optimizer = torch.optim.AdamW(param_dicts, lr=opt.lr, weight_decay=opt.wd)
-    if opt.scheduler == 'cosnl_wrmp':
+    if opt.scheduler == 'cosnl':
         lr_scheduler = CosineAnnealingWarmupRestarts(optimizer, first_cycle_steps=10, cycle_mult=1.0,
                                                      max_lr=1e-3, min_lr=1e-5, warmup_steps=4, gamma=0.5)
-    else:
+    elif opt.scheduler == 'reduce_plateau':
+        lr_scheduler = ReduceLROnPlateau(optimizer,
+                                         mode='min',
+                                         factor=0.2,
+                                         patience=5)
+    elif opt.scheduler == 'step_lr':
         lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, opt.lr_drop, gamma=0.5)
+    else:
+        raise NotImplementedError
 
     if opt.resume is not None:
         logger.info(f"Load checkpoint from {opt.resume}")
