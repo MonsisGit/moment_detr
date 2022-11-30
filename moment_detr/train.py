@@ -8,6 +8,7 @@ from tqdm import tqdm, trange
 from collections import defaultdict
 from collections import namedtuple
 from typing import Any
+import functools
 
 import torch
 import torch.nn as nn
@@ -17,7 +18,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from moment_detr.config import BaseOptions
 from moment_detr.start_end_dataset import \
-    StartEndDataset, start_end_collate, prepare_batch_inputs
+    StartEndDataset, start_end_collate, prepare_batch_inputs, collate_fn_replace_corrupted
 from moment_detr.inference import eval_epoch, start_inference, setup_model
 from utils.basic_utils import AverageMeter, dict_to_markdown
 from utils.model_utils import count_parameters
@@ -134,9 +135,10 @@ def train(model, criterion, optimizer, lr_scheduler, train_dataset, val_dataset,
     opt.train_log_txt_formatter = "{time_str} [Epoch] {epoch:03d} [Loss] {loss_str}\n"
     opt.eval_log_txt_formatter = "{time_str} [Epoch] {epoch:03d} [Loss] {loss_str} [Metrics] {eval_metrics_str}\n"
 
+    collate_fn = functools.partial(collate_fn_replace_corrupted, dataset=train_dataset)
     train_loader = DataLoader(
         train_dataset,
-        collate_fn=start_end_collate,
+        collate_fn=collate_fn,
         batch_size=opt.bsz,
         num_workers=opt.num_workers,
         shuffle=not opt.no_shuffle,

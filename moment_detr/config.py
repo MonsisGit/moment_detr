@@ -150,7 +150,7 @@ class BaseOptions(object):
         parser.add_argument("--eval_results_dir", type=str, default=None,
                             help="dir to save results, if not set, fall back to training results_dir")
         parser.add_argument("--sampling_mode", type=str, default="offline",
-                            help="use offline or online sampling", choices=['offline', 'online'])
+                            help="use offline or online sampling", choices=['online'])
         parser.add_argument("--lang_feat_path", type=str, default="CLIP_L14_language_tokens_features.h5")
         parser.add_argument("--scheduler", type=str, default="step_lr", choices=['step_lr', 'cosnl', 'reduce_plateau'])
         parser.add_argument("--use_warmup", action="store_true",

@@ -80,9 +80,9 @@ class StartEndDataset(Dataset):
         self.is_val = True if 'val' in self.dset_name else False
         self.val_offset = 0
 
-        #set seed
-        #np.random.seed(seed=42)
-        #random.seed(42)
+        # set seed
+        # np.random.seed(seed=42)
+        # random.seed(42)
 
     def load_data(self):
         datalist = load_jsonl(self.data_path)
@@ -100,35 +100,38 @@ class StartEndDataset(Dataset):
 
     def __getitem__(self, index):
 
-        model_inputs = dict()
-        meta = self.data[index]
-        model_inputs["query_feat"] = self._get_query_feat_by_qid(meta['qid'])  # (Dq, ) or (Lq, Dq)
-        if self.use_video and self.using_mat_dataset:
-            model_inputs["video_feat"], meta = self._get_video_feat_by_vid(meta)  # (Lv, Dv)
-            ctx_l = len(model_inputs["video_feat"])
+        try:
+            model_inputs = dict()
+            meta = self.data[index]
+            model_inputs["query_feat"] = self._get_query_feat_by_qid(meta['qid'])  # (Dq, ) or (Lq, Dq)
+            if self.use_video and self.using_mat_dataset:
+                model_inputs["video_feat"], meta = self._get_video_feat_by_vid(meta)  # (Lv, Dv)
+                ctx_l = len(model_inputs["video_feat"])
 
-        else:
-            ctx_l = self.max_v_l
-
-        if self.use_tef:
-            tef_st = torch.arange(0, ctx_l, 1.0) / ctx_l
-            tef_ed = tef_st + 1.0 / ctx_l
-            tef = torch.stack([tef_st, tef_ed], dim=1)  # (Lv, 2)
-            if self.use_video:
-                model_inputs["video_feat"] = torch.cat(
-                    [model_inputs["video_feat"], tef], dim=1)  # (Lv, Dv+2)
             else:
-                model_inputs["video_feat"] = tef
+                ctx_l = self.max_v_l
 
-        if self.load_labels:
-            model_inputs["span_labels"] = self.get_span_labels(meta["relevant_windows"], ctx_l)  # (#windows, 2)
-            if "subs_train" not in self.data_path and not self.using_mat_dataset:
-                model_inputs["saliency_pos_labels"], model_inputs["saliency_neg_labels"] = \
-                    self.get_saliency_labels(meta["relevant_clip_ids"], meta["saliency_scores"], ctx_l)
-            else:
-                model_inputs["saliency_pos_labels"], model_inputs["saliency_neg_labels"] = \
-                    self.get_saliency_labels_sub_as_query(meta["relevant_windows"][0], ctx_l)  # only one gt
-        return dict(meta=meta, model_inputs=model_inputs)
+            if self.use_tef:
+                tef_st = torch.arange(0, ctx_l, 1.0) / ctx_l
+                tef_ed = tef_st + 1.0 / ctx_l
+                tef = torch.stack([tef_st, tef_ed], dim=1)  # (Lv, 2)
+                if self.use_video:
+                    model_inputs["video_feat"] = torch.cat(
+                        [model_inputs["video_feat"], tef], dim=1)  # (Lv, Dv+2)
+                else:
+                    model_inputs["video_feat"] = tef
+
+            if self.load_labels:
+                model_inputs["span_labels"] = self.get_span_labels(meta["relevant_windows"], ctx_l)  # (#windows, 2)
+                if "subs_train" not in self.data_path and not self.using_mat_dataset:
+                    model_inputs["saliency_pos_labels"], model_inputs["saliency_neg_labels"] = \
+                        self.get_saliency_labels(meta["relevant_clip_ids"], meta["saliency_scores"], ctx_l)
+                else:
+                    model_inputs["saliency_pos_labels"], model_inputs["saliency_neg_labels"] = \
+                        self.get_saliency_labels_sub_as_query(meta["relevant_windows"][0], ctx_l)  # only one gt
+            return dict(meta=meta, model_inputs=model_inputs)
+        except:
+            return None
 
     def get_saliency_labels_sub_as_query(self, gt_window, ctx_l, max_n=2):
         gt_st = int(gt_window[0] / self.clip_len)
@@ -249,27 +252,11 @@ class StartEndDataset(Dataset):
 
             if self.sampling_mode == 'offline':
                 _feat_path = join(_feat_dir, f"{meta['vid']}.npz")
-                try:
-                    _feat = np.load(_feat_path)["features"].astype(np.float32)[:self.max_v_l]
-                except Exception as e:
-                    logger.warning('{e}\nFile: {_feat_path}')
-                    _feat = np.zeros(shape=(self.max_v_l, 768))
+                _feat = np.load(_feat_path)["features"].astype(np.float32)[:self.max_v_l]
 
             elif self.sampling_mode == 'online':
-                try:
-                    _feat, meta = self._online_sampling(meta)
-                    _feat = _feat.astype(np.float32)[:self.max_v_l]
-                except Exception as e:
-                    #logger.warning(f'\n{e}')
-                    temp_dim = self.v_feat_dim - 2 if self.use_tef else self.v_feat_dim
-                    _feat = np.zeros(shape=(self.max_v_l, temp_dim)).astype(np.float32)[:self.max_v_l]
-                    meta = {
-                        'qid': meta['qid'],
-                        'vid': meta['vid'],
-                        'relevant_windows': [[0, 2]],
-                        'query': meta['query'],
-                        'duration': self.clip_length_in_seconds,
-                    }
+                _feat, meta = self._online_sampling(meta)
+                _feat = _feat.astype(np.float32)[:self.max_v_l]
 
             else:
                 raise NotImplementedError
@@ -296,7 +283,7 @@ class StartEndDataset(Dataset):
 
         _video_feats = self.video_feats[meta['vid']][window[0]:window[1]]
         if self.sampling_fps != self.dataset_fps:
-            _video_feats = _video_feats[::int(self.dataset_fps/self.sampling_fps)]
+            _video_feats = _video_feats[::int(self.dataset_fps / self.sampling_fps)]
 
         meta = {
             'qid': meta['qid'],
@@ -361,8 +348,8 @@ class StartEndDataset(Dataset):
             start_moment = max((start_idx - start_window) / self.dataset_fps, 0)
             stop_moment = min((stop_idx - start_window) / self.dataset_fps, self.clip_length_in_seconds)
 
-        assert 0 <= start_moment <= self.clip_length_in_seconds, f'start moment ({start_moment}) outside clip'
-        assert 0 <= stop_moment <= self.clip_length_in_seconds, f'stop moment ({stop_moment}) outside clip'
+        # assert 0 <= start_moment <= self.clip_length_in_seconds, f'start moment ({start_moment}) outside clip'
+        # assert 0 <= stop_moment <= self.clip_length_in_seconds, f'stop moment ({stop_moment}) outside clip'
 
         return start_moment, stop_moment
 
@@ -403,3 +390,34 @@ def prepare_batch_inputs(batched_model_inputs, device, non_blocking=False):
 
     targets = None if len(targets) == 0 else targets
     return model_inputs, targets
+
+
+def collate_fn_replace_corrupted(batch, dataset):
+    """Collate function that allows to replace corrupted examples in the
+    dataloader. It expects that the dataloader returns 'None' when that occurs.
+    The 'None's in the batch are replaced with another examples sampled randomly.
+
+    Args:
+        batch (torch.Tensor): batch from the DataLoader.
+        dataset (torch.utils.data.Dataset): dataset which the DataLoader is loading.
+            Specify it with functools.partial and pass the resulting partial function that only
+            requires 'batch' argument to DataLoader's 'collate_fn' option.
+
+    Returns:
+        torch.Tensor: batch with new examples instead of corrupted ones.
+    """
+    # Idea from https://stackoverflow.com/a/57882783
+
+    original_batch_len = len(batch)
+    # Filter out all the Nones (corrupted examples)
+    batch = list(filter(lambda x: x is not None, batch))
+    filtered_batch_len = len(batch)
+    # Num of corrupted examples
+    diff = original_batch_len - filtered_batch_len
+    if diff > 0:
+        # Replace corrupted examples with another examples randomly
+        batch.extend([dataset[random.randint(0, len(dataset))] for _ in range(diff)])
+        # Recursive call to replace the replacements if they are corrupted
+        return collate_fn_replace_corrupted(batch, dataset)
+    # Finally, when the whole batch is fine, return it
+    return start_end_collate(batch)

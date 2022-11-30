@@ -1,6 +1,6 @@
 import pprint
 from tqdm import tqdm, trange
-import numpy as np
+import functools
 import os
 from collections import OrderedDict, defaultdict
 from utils.basic_utils import AverageMeter
@@ -16,7 +16,7 @@ from ignite.handlers.param_scheduler import create_lr_scheduler_with_warmup
 from moment_detr.config import TestOptions
 from moment_detr.model import build_model
 from moment_detr.span_utils import span_cxw_to_xx
-from moment_detr.start_end_dataset import StartEndDataset, start_end_collate, prepare_batch_inputs
+from moment_detr.start_end_dataset import StartEndDataset, start_end_collate, prepare_batch_inputs, collate_fn_replace_corrupted
 from moment_detr.postprocessing_moment_detr import PostProcessorDETR
 from standalone_eval.eval import eval_submission
 from utils.basic_utils import save_jsonl, save_json
@@ -183,9 +183,10 @@ def eval_epoch(model, eval_dataset, opt, save_submission_filename, epoch_i=None,
     else:
         criterion = None
 
+    collate_fn = functools.partial(collate_fn_replace_corrupted, dataset=eval_dataset)
     eval_loader = DataLoader(
         eval_dataset,
-        collate_fn=start_end_collate,
+        collate_fn=collate_fn,
         batch_size=opt.eval_bsz,
         num_workers=opt.num_workers,
         shuffle=False,
