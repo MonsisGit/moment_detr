@@ -193,8 +193,9 @@ def train(model, criterion, optimizer, lr_scheduler, train_dataset, val_dataset,
                 tb_writer.add_scalar(f"Eval/{k}", float(v), epoch_i + 1)
 
             # writing no_nms results to tensorboard
-            for k, v in metrics_nms["brief"].items():
-                tb_writer.add_scalar(f"Eval/{k}", float(v), epoch_i + 1)
+            if metrics_nms is not None:
+                for k, v in metrics_nms["brief"].items():
+                    tb_writer.add_scalar(f"Eval/{k}", float(v), epoch_i + 1)
 
             stop_score = metrics["brief"]["MR-R5@0.5"]
             if stop_score > prev_best_score or epoch_i == 0:
@@ -259,6 +260,7 @@ def start_training():
     if opt.debug:  # keep the model run deterministically
         # 'cudnn.benchmark = True' enabled auto finding the best algorithm for a specific input/net config.
         # Enable this only when input size is fixed.
+        #TODO is this necessay?
         cudnn.benchmark = False
         cudnn.deterministic = True
 

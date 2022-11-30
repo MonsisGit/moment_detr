@@ -218,7 +218,7 @@ def setup_model(opt):
         lr_scheduler = ReduceLROnPlateau(optimizer,
                                          mode='min',
                                          factor=0.2,
-                                         patience=5)
+                                         patience=10)
     elif opt.scheduler == 'step_lr':
         lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, opt.lr_drop, gamma=0.5)
     else:

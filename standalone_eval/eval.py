@@ -72,27 +72,8 @@ def compute_mr_ap(submission, ground_truth, iou_thds=np.linspace(0.5, 0.95, 10),
     iou_thd2ap = {k: float(f"{100 * v:.2f}") for k, v in iou_thd2ap.items()}
     return iou_thd2ap
 
-def nms(moments, scores, topk, thresh, relative_fps):
-    scores, ranks = scores.sort(descending=True)
-    moments = moments[ranks]
-    moments = moments / relative_fps
 
-    suppressed = torch.zeros_like(moments[:,0], dtype=torch.bool)
-    numel = suppressed.numel()
-    for i in range(numel - 1):
-        if suppressed[i]:
-            continue
-        mask = iou(moments[i+1:], moments[i]) > thresh
-        suppressed[i+1:][mask] = True
-        if i % topk.item() == 0:
-            if (~suppressed[:i]).sum() >= topk:
-                break
-
-    moments = moments[~suppressed]
-    return moments[:topk]
-
-
-def compute_mr_rk(submission, ground_truth, iou_thds=[0.1, 0.3, 0.5], top_ks=[1, 5, 10]):
+def compute_mr_rk(submission, ground_truth, iou_thds=[0.1, 0.3, 0.5], top_ks=[1, 5, 10], is_nms=False):
     """If a predicted segment has IoU >= iou_thd with one of the 1st GT segment, we define it positive"""
     iou_thds = [float(f"{e:.2f}") for e in iou_thds]
     pred_qid2window = dict()
@@ -100,7 +81,6 @@ def compute_mr_rk(submission, ground_truth, iou_thds=[0.1, 0.3, 0.5], top_ks=[1,
     for top_k in top_ks:
         for s in submission:
             pred_qid2window[s["qid"]] = [k[0:2] for k in s["pred_relevant_windows"][0:top_k]]  # :2 rm scores
-
 
         iou_thd2recall_at_d = []
         for d in ground_truth:
@@ -116,8 +96,17 @@ def compute_mr_rk(submission, ground_truth, iou_thds=[0.1, 0.3, 0.5], top_ks=[1,
 
         for thd in iou_thds:
             if len(iou_thd2recall_at_d) != 0:
-                iou_thd2recall_at_k[f'{thd}@{top_k}'] = float(
-                    f"{(np.array(iou_thd2recall_at_d)[...,0] >=thd).any(1).mean() * 100:.2f}")
+                if not is_nms:
+                    iou_thd2recall_at_k[f'{thd}@{top_k}'] = float(
+                        f"{(np.array(iou_thd2recall_at_d)[..., 0] >= thd).any(1).mean() * 100:.2f}")
+                else:
+                    iou_temp = []
+                    for iou in iou_thd2recall_at_d:
+                        iou_temp.append((iou >= thd).any())
+
+                    iou_thd2recall_at_k[f'{thd}@{top_k}'] = float(
+                        f"{np.mean(iou_temp) * 100:.2f}")
+
             else:
                 iou_thd2recall_at_k[f'{thd}@{top_k}'] = -1
 
@@ -181,8 +170,6 @@ def get_data_by_range(submission, ground_truth, len_range):
             ground_truth_in_range.append(d)
             gt_qids_in_range.add(d["qid"])
 
-
-
     # keep only submissions for ground_truth_in_range
     submission_in_range = []
     for d in submission:
@@ -192,10 +179,11 @@ def get_data_by_range(submission, ground_truth, len_range):
     return submission_in_range, ground_truth_in_range
 
 
-def eval_moment_retrieval(submission, ground_truth, verbose=True):
+def eval_moment_retrieval(submission, ground_truth, verbose=True, is_nms=False):
     length_ranges = [[0, 10], [10, 20], [20, 30], [0, 100], ]  #
     range_names = ["short", "middle", "long", "full"]
-    range_names = [f'{d}_{length_ranges[idx][0]}_{length_ranges[idx][1]}' if d!='full' else 'full' for idx,d in enumerate(range_names)]
+    range_names = [f'{d}_{length_ranges[idx][0]}_{length_ranges[idx][1]}' if d != 'full' else 'full' for idx, d in
+                   enumerate(range_names)]
 
     ret_metrics = {}
     for l_range, name in zip(length_ranges, range_names):
@@ -206,8 +194,10 @@ def eval_moment_retrieval(submission, ground_truth, verbose=True):
             print(f"{name}: {l_range}, {len(_ground_truth)}/{len(ground_truth)}="
                   f"{100 * len(_ground_truth) / len(ground_truth):.2f}% examples.")
             iou_thd2average_precision = compute_mr_ap(_submission, _ground_truth, num_workers=8, chunksize=50)
-            #iou_thd2recall_at_k = compute_mr_r1(_submission, _ground_truth)
-            iou_thd2recall_at_k = compute_mr_rk(_submission, _ground_truth)
+            # iou_thd2recall_at_k = compute_mr_r1(_submission, _ground_truth)
+            iou_thd2recall_at_k = compute_mr_rk(submission=_submission,
+                                                ground_truth=_ground_truth,
+                                                is_nms=is_nms)
             ret_metrics[name] = {"MR-mAP": iou_thd2average_precision, "MR-RK": iou_thd2recall_at_k}
             if verbose:
                 print(f"[eval_moment_retrieval] [{name}] {time.time() - start_time:.2f} seconds")
@@ -364,7 +354,6 @@ def eval_submission(submission, ground_truth, verbose=True, match_number=True, i
     pred_qids = set([e["qid"] for e in submission])
     gt_qids = set([e["qid"] for e in ground_truth])
 
-
     if match_number:
         assert pred_qids == gt_qids, \
             f"qids in ground_truth and submission must match. " \
@@ -374,13 +363,11 @@ def eval_submission(submission, ground_truth, verbose=True, match_number=True, i
         submission = [e for e in submission if e["qid"] in shared_qids]
         ground_truth = [e for e in ground_truth if e["qid"] in shared_qids]
 
-
-
     eval_metrics = {}
     eval_metrics_brief = OrderedDict()
     if "pred_relevant_windows" in submission[0]:
         moment_ret_scores = eval_moment_retrieval(
-            submission, ground_truth, verbose=verbose)
+            submission, ground_truth, verbose=verbose, is_nms=is_nms)
 
         eval_metrics.update(moment_ret_scores)
         if is_nms:
