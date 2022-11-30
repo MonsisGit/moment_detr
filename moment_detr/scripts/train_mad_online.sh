@@ -6,8 +6,8 @@ exp_id=exp
 
 ######## paths
 root=/nfs/data3/goldhofer/mad_dataset/
-train_path=${root}annotations/MAD_train_SMNone_FPS5_CL180_L2False_extsTrue.json
-eval_path=${root}annotations/MAD_val_SMNone_FPS5_CL180_L2False_extsTrue.json
+train_path=${root}annotations/MAD_train_SMNone_FPS5_CL30_L2False_extsTrue.json
+eval_path=${root}annotations/MAD_val_SMNone_FPS5_CL30_L2False_extsTrue.json
 results_root=${root}momentDETR_results
 v_feat_dirs=(/nfs/data3/goldhofer/mad_dataset/)
 t_feat_dir=/nfs/data3/goldhofer/mad_dataset/
@@ -18,17 +18,17 @@ lang_feat_path=CLIP_L14_language_tokens_features.h5
 eval_split_name=val
 v_feat_dim=768
 t_feat_dim=768
-bsz=32
+bsz=128
 cuda_visible_devices=0
 data_ratio=1
 num_workers=8
 n_epoch=100
-lr=1e-4
+lr=4e-4
 lr_drop=15
 clip_length=0.2
-max_q_l=32
+max_q_l=100
 #this must be fps * window length
-max_v_l=900
+max_v_l=150
 sheduler=step_lr_warmup
 
 ## Losses
@@ -36,9 +36,9 @@ lw_saliency=4
 set_cost_class=4   #"Class coefficient in the matching cost"
 label_loss_coef=4
 ##set for results tracking!
-window_length=180
+window_length=30
 sampling_mode=online
-sampling_fps=1
+sampling_fps=5
 eval_results_dir=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_lrd${lr_drop}_dr${data_ratio}_wl${window_length}_sm${sampling_mode}_fps${sampling_fps}_lws${lw_saliency}_lloss${label_loss_coef}_${sheduler}
 
 if [ ${window_length} -gt ${max_v_l} ]; then

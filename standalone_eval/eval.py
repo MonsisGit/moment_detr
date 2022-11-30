@@ -366,12 +366,13 @@ def eval_submission(submission, ground_truth, verbose=True, match_number=True):
         eval_metrics.update(moment_ret_scores)
         moment_ret_scores_brief = {
             "MR-mAP": moment_ret_scores["full"]["MR-mAP"]["average"],
-            "MR-mAP@0.5": moment_ret_scores["full"]["MR-mAP"]["0.5"],
-            "MR-mAP@0.75": moment_ret_scores["full"]["MR-mAP"]["0.75"],
 
             "MR-R1@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@1"],
             "MR-R5@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@5"],
             "MR-R10@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@10"],
+            "(short) MR-R1@0.5": moment_ret_scores["short_0_10"]["MR-RK"]["0.5@1"],
+            "(middle) MR-R1@0.5": moment_ret_scores["middle_10_20"]["MR-RK"]["0.5@1"],
+            "(long) MR-R1@0.5": moment_ret_scores["long_20_30"]["MR-RK"]["0.5@1"],
         }
         eval_metrics_brief.update(
             sorted([(k, v) for k, v in moment_ret_scores_brief.items()], key=lambda x: x[0]))

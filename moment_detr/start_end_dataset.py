@@ -80,9 +80,9 @@ class StartEndDataset(Dataset):
         self.is_val = True if 'val' in self.dset_name else False
         self.val_offset = 0
 
-        # set seed
-        np.random.seed(seed=42)
-        random.seed(42)
+        #set seed
+        #np.random.seed(seed=42)
+        #random.seed(42)
 
     def load_data(self):
         datalist = load_jsonl(self.data_path)
@@ -144,10 +144,13 @@ class StartEndDataset(Dataset):
         neg_pool = list(range(0, gt_st)) + list(range(gt_ed + 1, ctx_l))
 
         # this sets the saliency score to zero, since no negative window exists
-        if len(neg_pool) == 0:
+        if len(neg_pool) <= 0:
             return [-1, -1], [-1, -1]
         else:
-            neg_clip_indices = random.sample(neg_pool, k=max_n)
+            try:
+                neg_clip_indices = random.sample(neg_pool, k=max_n)
+            except:
+                return [-1, -1], [-1, -1]
         return pos_clip_indices, neg_clip_indices
 
     def get_saliency_labels(self, rel_clip_ids, scores, ctx_l, max_n=1, add_easy_negative=True):
@@ -257,7 +260,7 @@ class StartEndDataset(Dataset):
                     _feat, meta = self._online_sampling(meta)
                     _feat = _feat.astype(np.float32)[:self.max_v_l]
                 except Exception as e:
-                    logger.warning(f'\n{e}')
+                    #logger.warning(f'\n{e}')
                     temp_dim = self.v_feat_dim - 2 if self.use_tef else self.v_feat_dim
                     _feat = np.zeros(shape=(self.max_v_l, temp_dim)).astype(np.float32)[:self.max_v_l]
                     meta = {
