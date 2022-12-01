@@ -1,6 +1,6 @@
 import pprint
 from tqdm import tqdm, trange
-import numpy as np
+import functools
 import os
 from collections import OrderedDict, defaultdict
 from utils.basic_utils import AverageMeter
@@ -9,15 +9,20 @@ import torch
 import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
 from torch.utils.data import DataLoader
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+
+from ignite.handlers.param_scheduler import create_lr_scheduler_with_warmup
 
 from moment_detr.config import TestOptions
 from moment_detr.model import build_model
 from moment_detr.span_utils import span_cxw_to_xx
-from moment_detr.start_end_dataset import StartEndDataset, start_end_collate, prepare_batch_inputs
+from moment_detr.start_end_dataset import StartEndDataset, start_end_collate, prepare_batch_inputs, \
+    collate_fn_replace_corrupted
 from moment_detr.postprocessing_moment_detr import PostProcessorDETR
 from standalone_eval.eval import eval_submission
 from utils.basic_utils import save_jsonl, save_json
 from utils.temporal_nms import temporal_nms
+from cosine_annealing_warmup import CosineAnnealingWarmupRestarts
 
 import logging
 
@@ -70,7 +75,8 @@ def eval_epoch_post_processing(submission, opt, gt_data, save_submission_filenam
         if opt.eval_split_name == "val":
             metrics_nms = eval_submission(
                 submission_after_nms, gt_data,
-                verbose=opt.debug, match_number=not opt.debug
+                verbose=opt.debug, match_number=not opt.debug,
+                is_nms=True
             )
             save_metrics_nms_path = submission_nms_path.replace(".jsonl", "_metrics.json")
             save_json(metrics_nms, save_metrics_nms_path, save_pretty=True, sort_keys=False)
@@ -125,10 +131,11 @@ def compute_mr_results(model, eval_loader, opt, epoch_i=None, criterion=None, tb
             if not opt.no_sort_results:
                 cur_ranked_preds = sorted(cur_ranked_preds, key=lambda x: x[2], reverse=True)
             cur_ranked_preds = [[float(f"{e:.4f}") for e in row] for row in cur_ranked_preds]
+
             cur_query_pred = dict(
-                qid=meta["qid"],
+                qid=meta['qid'],
                 query=meta["query"],
-                vid=meta["vid"],
+                vid=meta['vid'],
                 pred_relevant_windows=cur_ranked_preds,
                 pred_saliency_scores=saliency_scores[idx]
             )
@@ -149,18 +156,20 @@ def compute_mr_results(model, eval_loader, opt, epoch_i=None, criterion=None, tb
         for k, v in loss_meters.items():
             tb_writer.add_scalar("Eval/{}".format(k), v.avg, epoch_i + 1)
 
+    # TODO no postprocessing here
     post_processor = PostProcessorDETR(
-        clip_length=2, min_ts_val=0, max_ts_val=150,
-        min_w_l=2, max_w_l=150, move_window_method="left",
+        clip_length=opt.clip_length, min_ts_val=0, max_ts_val=opt.max_v_l / opt.dataset_fps,
+        min_w_l=0, max_w_l=500, move_window_method="left",
         process_func_names=("clip_ts", "round_multiple")
     )
-    mr_res = post_processor(mr_res)
+    # mr_res = post_processor(mr_res)
     return mr_res, loss_meters
 
 
 def get_eval_res(model, eval_loader, opt, epoch_i, criterion, tb_writer):
     """compute and save query and video proposal embeddings"""
-    eval_res, eval_loss_meters = compute_mr_results(model, eval_loader, opt, epoch_i, criterion, tb_writer)  # list(dict)
+    eval_res, eval_loss_meters = compute_mr_results(model, eval_loader, opt, epoch_i, criterion,
+                                                    tb_writer)  # list(dict)
     return eval_res, eval_loss_meters
 
 
@@ -172,9 +181,10 @@ def eval_epoch(model, eval_dataset, opt, save_submission_filename, epoch_i=None,
     else:
         criterion = None
 
+    collate_fn = functools.partial(collate_fn_replace_corrupted, dataset=eval_dataset)
     eval_loader = DataLoader(
         eval_dataset,
-        collate_fn=start_end_collate,
+        collate_fn=collate_fn,
         batch_size=opt.eval_bsz,
         num_workers=opt.num_workers,
         shuffle=False,
@@ -200,7 +210,18 @@ def setup_model(opt):
 
     param_dicts = [{"params": [p for n, p in model.named_parameters() if p.requires_grad]}]
     optimizer = torch.optim.AdamW(param_dicts, lr=opt.lr, weight_decay=opt.wd)
-    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, opt.lr_drop)
+    if opt.scheduler == 'cosnl':
+        lr_scheduler = CosineAnnealingWarmupRestarts(optimizer, first_cycle_steps=10, cycle_mult=1.0,
+                                                     max_lr=1e-3, min_lr=1e-5, warmup_steps=4, gamma=0.5)
+    elif opt.scheduler == 'reduce_plateau':
+        lr_scheduler = ReduceLROnPlateau(optimizer,
+                                         mode='min',
+                                         factor=0.5,
+                                         patience=10)
+    elif opt.scheduler == 'step_lr':
+        lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, opt.lr_drop, gamma=0.5)
+    else:
+        raise NotImplementedError
 
     if opt.resume is not None:
         logger.info(f"Load checkpoint from {opt.resume}")
@@ -210,7 +231,7 @@ def setup_model(opt):
             optimizer.load_state_dict(checkpoint['optimizer'])
             lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
             opt.start_epoch = checkpoint['epoch'] + 1
-        #logger.info(f"Loaded model saved at epoch {checkpoint['epoch']} from checkpoint: {opt.resume}")
+        # logger.info(f"Loaded model saved at epoch {checkpoint['epoch']} from checkpoint: {opt.resume}")
     else:
         logger.warning("If you intend to evaluate the model, please specify --resume with ckpt path")
 
@@ -218,12 +239,15 @@ def setup_model(opt):
 
 
 def start_inference():
-    logger.info("Setup config, data and model...")
     opt = TestOptions().parse()
     cudnn.benchmark = True
     cudnn.deterministic = False
 
     assert opt.eval_path is not None
+    if 'val' in opt.eval_path:
+        opt.eval_path = opt.eval_path.replace('val', 'test')
+        opt.dset_name = 'test'
+
     eval_dataset = StartEndDataset(
         dset_name=opt.dset_name,
         data_path=opt.eval_path,
@@ -243,13 +267,17 @@ def start_inference():
         txt_drop_ratio=0,
         sampling_fps=opt.sampling_fps,
         sampling_mode=opt.sampling_mode,
-        lang_feat_path=opt.lang_feat_path
+        lang_feat_path=opt.lang_feat_path,
+        v_feat_dim=opt.v_feat_dim,
+        dataset_fps=opt.dataset_fps,
+        use_exact_ts=opt.use_exact_ts,
     )
 
     model, criterion, _, _ = setup_model(opt)
-    save_submission_filename = "inference_{}_{}_{}_preds.jsonl".format(
-        opt.dset_name, opt.eval_split_name, opt.eval_id)
-    logger.info("Starting inference...")
+    # save_submission_filename = "inference_{}_{}_{}_preds.jsonl".format(
+    #    opt.dset_name, opt.eval_split_name, opt.eval_id)
+    save_submission_filename = "inference_test_preds.jsonl"
+    logger.info(f"Starting inference on {opt.eval_path.split('/')[-1]}")
     with torch.no_grad():
         metrics_no_nms, metrics_nms, eval_loss_meters, latest_file_paths = \
             eval_epoch(model, eval_dataset, opt, save_submission_filename, criterion=criterion)

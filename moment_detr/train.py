@@ -6,6 +6,9 @@ import random
 import numpy as np
 from tqdm import tqdm, trange
 from collections import defaultdict
+from collections import namedtuple
+from typing import Any
+import functools
 
 import torch
 import torch.nn as nn
@@ -15,13 +18,13 @@ from torch.utils.tensorboard import SummaryWriter
 
 from moment_detr.config import BaseOptions
 from moment_detr.start_end_dataset import \
-    StartEndDataset, start_end_collate, prepare_batch_inputs
+    StartEndDataset, start_end_collate, prepare_batch_inputs, collate_fn_replace_corrupted
 from moment_detr.inference import eval_epoch, start_inference, setup_model
 from utils.basic_utils import AverageMeter, dict_to_markdown
 from utils.model_utils import count_parameters
 
-
 import logging
+
 logger = logging.getLogger(__name__)
 logging.basicConfig(format="%(asctime)s.%(msecs)03d:%(levelname)s:%(name)s - %(message)s",
                     datefmt="%Y-%m-%d %H:%M:%S",
@@ -36,8 +39,32 @@ def set_seed(seed, use_cuda=True):
         torch.cuda.manual_seed_all(seed)
 
 
+class ModelWrapper(torch.nn.Module):
+    """ Wrapper class for model with dict/list rvalues. """
+
+    def __init__(self, model: torch.nn.Module) -> None:
+        """
+        Init call.
+        """
+        super().__init__()
+        self.model = model
+
+    def forward(self, input) -> Any:
+        """
+        Wrap forward call.
+        """
+        data = self.model(**input)
+
+        if isinstance(data, dict):
+
+            return data['pred_logits']
+
+        else:
+            return data
+
+
 def train_epoch(model, criterion, train_loader, optimizer, opt, epoch_i, tb_writer):
-    logger.info(f"[Epoch {epoch_i+1}]")
+    logger.info(f"[Epoch {epoch_i + 1}]")
     model.train()
     criterion.train()
 
@@ -80,13 +107,13 @@ def train_epoch(model, criterion, train_loader, optimizer, opt, epoch_i, tb_writ
             break
 
     # print/add logs
-    tb_writer.add_scalar("Train/lr", float(optimizer.param_groups[0]["lr"]), epoch_i+1)
+    tb_writer.add_scalar("Train/lr", float(optimizer.param_groups[0]["lr"]), epoch_i + 1)
     for k, v in loss_meters.items():
-        tb_writer.add_scalar("Train/{}".format(k), v.avg, epoch_i+1)
+        tb_writer.add_scalar("Train/{}".format(k), v.avg, epoch_i + 1)
 
     to_write = opt.train_log_txt_formatter.format(
         time_str=time.strftime("%Y_%m_%d_%H_%M_%S"),
-        epoch=epoch_i+1,
+        epoch=epoch_i + 1,
         loss_str=" ".join(["{} {:.4f}".format(k, v.avg) for k, v in loss_meters.items()]))
     with open(opt.train_log_filepath, "a") as f:
         f.write(to_write)
@@ -104,17 +131,20 @@ def train(model, criterion, optimizer, lr_scheduler, train_dataset, val_dataset,
 
     tb_writer = SummaryWriter(opt.tensorboard_log_dir)
     tb_writer.add_text("hyperparameters", dict_to_markdown(vars(opt), max_str_len=None))
+
     opt.train_log_txt_formatter = "{time_str} [Epoch] {epoch:03d} [Loss] {loss_str}\n"
     opt.eval_log_txt_formatter = "{time_str} [Epoch] {epoch:03d} [Loss] {loss_str} [Metrics] {eval_metrics_str}\n"
 
+    collate_fn = functools.partial(collate_fn_replace_corrupted, dataset=train_dataset)
     train_loader = DataLoader(
         train_dataset,
-        collate_fn=start_end_collate,
+        collate_fn=collate_fn,
         batch_size=opt.bsz,
         num_workers=opt.num_workers,
-        shuffle=True,
+        shuffle=not opt.no_shuffle,
         pin_memory=opt.pin_memory
     )
+
     prev_best_score = 0.
     es_cnt = 0
     # start_epoch = 0
@@ -123,16 +153,30 @@ def train(model, criterion, optimizer, lr_scheduler, train_dataset, val_dataset,
     else:
         start_epoch = opt.start_epoch
     save_submission_filename = "latest_{}_{}_preds.jsonl".format(opt.dset_name, opt.eval_split_name)
+    nm_epochs_warmup = 3
+
     for epoch_i in trange(start_epoch, opt.n_epoch, desc="Epoch"):
         if epoch_i > -1:
+
+            if opt.use_warmup and epoch_i < nm_epochs_warmup:
+                lr_scheduler.optimizer.param_groups[0]['lr'] = \
+                    (0.01 + (epoch_i / nm_epochs_warmup)) * lr_scheduler.optimizer.defaults['lr']
+            if opt.use_warmup and epoch_i == nm_epochs_warmup:
+                lr_scheduler.optimizer.param_groups[0]['lr'] = lr_scheduler.optimizer.defaults['lr']
+
             train_epoch(model, criterion, train_loader, optimizer, opt, epoch_i, tb_writer)
-            lr_scheduler.step()
+
+            if not opt.scheduler == 'reduce_plateau':
+                lr_scheduler.step()
+
         eval_epoch_interval = 1
         if opt.eval_path is not None and (epoch_i + 1) % eval_epoch_interval == 0:
             with torch.no_grad():
                 metrics_no_nms, metrics_nms, eval_loss_meters, latest_file_paths = \
                     eval_epoch(model, val_dataset, opt, save_submission_filename, epoch_i, criterion, tb_writer)
 
+                if opt.scheduler == 'reduce_plateau':
+                    lr_scheduler.step(eval_loss_meters['loss_overall'].val)
             # log
             to_write = opt.eval_log_txt_formatter.format(
                 time_str=time.strftime("%Y_%m_%d_%H_%M_%S"),
@@ -148,10 +192,15 @@ def train(model, criterion, optimizer, lr_scheduler, train_dataset, val_dataset,
 
             metrics = metrics_no_nms
             for k, v in metrics["brief"].items():
-                tb_writer.add_scalar(f"Eval/{k}", float(v), epoch_i+1)
+                tb_writer.add_scalar(f"Eval/{k}", float(v), epoch_i + 1)
 
-            stop_score = metrics["brief"]["MR-full-mAP"]
-            if stop_score > prev_best_score:
+            # writing no_nms results to tensorboard
+            if metrics_nms is not None:
+                for k, v in metrics_nms["brief"].items():
+                    tb_writer.add_scalar(f"Eval/{k}", float(v), epoch_i + 1)
+
+            stop_score = metrics["brief"]["MR-R5@0.5"]
+            if stop_score > prev_best_score or epoch_i == 0:
                 es_cnt = 0
                 prev_best_score = stop_score
 
@@ -213,6 +262,7 @@ def start_training():
     if opt.debug:  # keep the model run deterministically
         # 'cudnn.benchmark = True' enabled auto finding the best algorithm for a specific input/net config.
         # Enable this only when input size is fixed.
+        #TODO is this necessay?
         cudnn.benchmark = False
         cudnn.deterministic = True
 
@@ -234,7 +284,10 @@ def start_training():
         txt_drop_ratio=opt.txt_drop_ratio,
         sampling_fps=opt.sampling_fps,
         sampling_mode=opt.sampling_mode,
-        lang_feat_path=opt.lang_feat_path
+        lang_feat_path=opt.lang_feat_path,
+        v_feat_dim=opt.v_feat_dim,
+        dataset_fps=opt.dataset_fps,
+        use_exact_ts=opt.use_exact_ts,
 
     )
 
@@ -242,6 +295,7 @@ def start_training():
     train_dataset = StartEndDataset(**dataset_config)
 
     if opt.eval_path is not None:
+        dataset_config["dset_name"] = 'val'
         dataset_config["data_path"] = opt.eval_path
         dataset_config["txt_drop_ratio"] = 0
         dataset_config["q_feat_dir"] = opt.t_feat_dir.replace("sub_features", "text_features")  # for pretraining
@@ -252,7 +306,7 @@ def start_training():
 
     model, criterion, optimizer, lr_scheduler = setup_model(opt)
     logger.info(f"Model {model}")
-    count_parameters(model)
+    # count_parameters(model)
     logger.info("Start Training...")
     train(model, criterion, optimizer, lr_scheduler, train_dataset, eval_dataset, opt)
     return opt.ckpt_filepath.replace(".ckpt", "_best.ckpt"), opt.eval_split_name, opt.eval_path, opt.debug
@@ -266,6 +320,7 @@ if __name__ == '__main__':
                       "--eval_path", eval_path]
 
         import sys
+
         sys.argv[1:] = input_args
         logger.info("\n\n\nFINISHED TRAINING!!!")
         logger.info("Evaluating model at {}".format(best_ckpt_path))

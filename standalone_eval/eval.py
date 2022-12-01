@@ -7,6 +7,9 @@ import multiprocessing as mp
 from standalone_eval.utils import compute_average_precision_detection, \
     compute_temporal_iou_batch_cross, compute_temporal_iou_batch_paired, load_jsonl, get_ap
 
+import torch
+import torch.nn.functional as F
+
 
 def compute_average_precision_detection_wrapper(
         input_triple, tiou_thresholds=np.linspace(0.5, 0.95, 10)):
@@ -18,6 +21,7 @@ def compute_average_precision_detection_wrapper(
 
 def compute_mr_ap(submission, ground_truth, iou_thds=np.linspace(0.5, 0.95, 10),
                   max_gt_windows=None, max_pred_windows=10, num_workers=8, chunksize=50):
+    # TODO look at ap
     iou_thds = [float(f"{e:.2f}") for e in iou_thds]
     pred_qid2data = defaultdict(list)
     for d in submission:
@@ -67,6 +71,46 @@ def compute_mr_ap(submission, ground_truth, iou_thds=np.linspace(0.5, 0.95, 10),
     # formatting
     iou_thd2ap = {k: float(f"{100 * v:.2f}") for k, v in iou_thd2ap.items()}
     return iou_thd2ap
+
+
+def compute_mr_rk(submission, ground_truth, iou_thds=[0.1, 0.3, 0.5], top_ks=[1, 5, 10], is_nms=False):
+    """If a predicted segment has IoU >= iou_thd with one of the 1st GT segment, we define it positive"""
+    iou_thds = [float(f"{e:.2f}") for e in iou_thds]
+    pred_qid2window = dict()
+    iou_thd2recall_at_k = {}
+    for top_k in top_ks:
+        for s in submission:
+            pred_qid2window[s["qid"]] = [k[0:2] for k in s["pred_relevant_windows"][0:top_k]]  # :2 rm scores
+
+        iou_thd2recall_at_d = []
+        for d in ground_truth:
+            cur_gt_windows = d["relevant_windows"]
+            cur_qid = d["qid"]
+            if len(cur_gt_windows) > 0:  # select the GT window that has the highest IoU
+                if len(pred_qid2window) >= top_k:
+                    curr_pred_qid2window = np.array(pred_qid2window[cur_qid])
+                    cur_ious = compute_temporal_iou_batch_cross(
+                        curr_pred_qid2window, np.array(d["relevant_windows"])
+                    )[0]
+                    iou_thd2recall_at_d.append(cur_ious)
+
+        for thd in iou_thds:
+            if len(iou_thd2recall_at_d) != 0:
+                if not is_nms:
+                    iou_thd2recall_at_k[f'{thd}@{top_k}'] = float(
+                        f"{(np.array(iou_thd2recall_at_d)[..., 0] >= thd).any(1).mean() * 100:.2f}")
+                else:
+                    iou_temp = []
+                    for iou in iou_thd2recall_at_d:
+                        iou_temp.append((iou >= thd).any())
+
+                    iou_thd2recall_at_k[f'{thd}@{top_k}'] = float(
+                        f"{np.mean(iou_temp) * 100:.2f}")
+
+            else:
+                iou_thd2recall_at_k[f'{thd}@{top_k}'] = -1
+
+    return iou_thd2recall_at_k
 
 
 def compute_mr_r1(submission, ground_truth, iou_thds=np.linspace(0.5, 0.95, 10)):
@@ -135,9 +179,11 @@ def get_data_by_range(submission, ground_truth, len_range):
     return submission_in_range, ground_truth_in_range
 
 
-def eval_moment_retrieval(submission, ground_truth, verbose=True):
-    length_ranges = [[0, 10], [10, 30], [30, 150], [0, 150], ]  #
+def eval_moment_retrieval(submission, ground_truth, verbose=True, is_nms=False):
+    length_ranges = [[0, 10], [10, 20], [20, 30], [0, 100], ]  #
     range_names = ["short", "middle", "long", "full"]
+    range_names = [f'{d}_{length_ranges[idx][0]}_{length_ranges[idx][1]}' if d != 'full' else 'full' for idx, d in
+                   enumerate(range_names)]
 
     ret_metrics = {}
     for l_range, name in zip(length_ranges, range_names):
@@ -146,27 +192,39 @@ def eval_moment_retrieval(submission, ground_truth, verbose=True):
         _submission, _ground_truth = get_data_by_range(submission, ground_truth, l_range)
         if len(_submission) != 0:
             print(f"{name}: {l_range}, {len(_ground_truth)}/{len(ground_truth)}="
-                  f"{100 * len(_ground_truth) / len(ground_truth):.2f} examples.")
+                  f"{100 * len(_ground_truth) / len(ground_truth):.2f}% examples.")
             iou_thd2average_precision = compute_mr_ap(_submission, _ground_truth, num_workers=8, chunksize=50)
-            iou_thd2recall_at_one = compute_mr_r1(_submission, _ground_truth)
-            ret_metrics[name] = {"MR-mAP": iou_thd2average_precision, "MR-R1": iou_thd2recall_at_one}
+            # iou_thd2recall_at_k = compute_mr_r1(_submission, _ground_truth)
+            iou_thd2recall_at_k = compute_mr_rk(submission=_submission,
+                                                ground_truth=_ground_truth,
+                                                is_nms=is_nms)
+            ret_metrics[name] = {"MR-mAP": iou_thd2average_precision, "MR-RK": iou_thd2recall_at_k}
             if verbose:
                 print(f"[eval_moment_retrieval] [{name}] {time.time() - start_time:.2f} seconds")
         else:
-            placeholder_scores = {"0.5": -1,
-                                  "0.55": -1,
-                                  "0.6": -1,
-                                  "0.65": -1,
-                                  "0.70": -1,
-                                  "0.75": -1,
-                                  "0.8": -1,
-                                  "0.85": -1,
-                                  "0.9": -1,
-                                  "0.95": -1,
-                                  }
-            placeholder_scores_w_average = placeholder_scores
-            placeholder_scores_w_average["average"] = -1
-            ret_metrics[name] = {"MR-mAP": placeholder_scores, "MR-R1": placeholder_scores_w_average}
+            placeholder_scores_mAP = {"0.5": -1,
+                                      "0.55": -1,
+                                      "0.6": -1,
+                                      "0.65": -1,
+                                      "0.70": -1,
+                                      "0.75": -1,
+                                      "0.8": -1,
+                                      "0.85": -1,
+                                      "0.9": -1,
+                                      "0.95": -1,
+                                      "average": -1,
+                                      }
+            placeholder_scores_mr = {'0.1@1': -1,
+                                     '0.3@1': -1,
+                                     '0.5@1': -1,
+                                     '0.1@5': -1,
+                                     '0.3@5': -1,
+                                     '0.5@5': -1,
+                                     '0.1@10': -1,
+                                     '0.3@10': -1,
+                                     '0.5@10': -1, }
+
+            ret_metrics[name] = {"MR-mAP": placeholder_scores_mAP, "MR-RK": placeholder_scores_mr}
     return ret_metrics
 
 
@@ -231,9 +289,10 @@ def mk_gt_scores(gt_data, clip_length=2):
     """gt_data, dict, """
     num_clips = int(gt_data["duration"] / clip_length)
     saliency_scores_full_video = np.zeros((num_clips, 3))
-    relevant_clip_ids = np.array(gt_data["relevant_clip_ids"])  # (#relevant_clip_ids, )
-    saliency_scores_relevant_clips = np.array(gt_data["saliency_scores"])  # (#relevant_clip_ids, 3)
-    saliency_scores_full_video[relevant_clip_ids] = saliency_scores_relevant_clips
+    # relevant_clip_ids = np.array(gt_data["relevant_clip_ids"])  # (#relevant_clip_ids, )
+    # relevant_clip_ids = np.zeros(saliency_scores_full_video.shape[0])
+    # saliency_scores_relevant_clips = np.array(gt_data["saliency_scores"])  # (#relevant_clip_ids, 3)
+    # saliency_scores_full_video[relevant_clip_ids] = saliency_scores_relevant_clips
     return saliency_scores_full_video  # (#clips_in_video, 3)  the scores are in range [0, 4]
 
 
@@ -264,7 +323,7 @@ def eval_highlight(submission, ground_truth, verbose=True):
     return highlight_det_metrics
 
 
-def eval_submission(submission, ground_truth, verbose=True, match_number=True):
+def eval_submission(submission, ground_truth, verbose=True, match_number=True, is_nms=False):
     """
     Args:
         submission: list(dict), each dict is {
@@ -294,6 +353,7 @@ def eval_submission(submission, ground_truth, verbose=True, match_number=True):
     """
     pred_qids = set([e["qid"] for e in submission])
     gt_qids = set([e["qid"] for e in ground_truth])
+
     if match_number:
         assert pred_qids == gt_qids, \
             f"qids in ground_truth and submission must match. " \
@@ -307,22 +367,32 @@ def eval_submission(submission, ground_truth, verbose=True, match_number=True):
     eval_metrics_brief = OrderedDict()
     if "pred_relevant_windows" in submission[0]:
         moment_ret_scores = eval_moment_retrieval(
-            submission, ground_truth, verbose=verbose)
+            submission, ground_truth, verbose=verbose, is_nms=is_nms)
+
         eval_metrics.update(moment_ret_scores)
-        moment_ret_scores_brief = {
-            "MR-full-mAP": moment_ret_scores["full"]["MR-mAP"]["average"],
-            "MR-full-mAP@0.5": moment_ret_scores["full"]["MR-mAP"]["0.5"],
-            "MR-full-mAP@0.75": moment_ret_scores["full"]["MR-mAP"]["0.75"],
-            "MR-short-mAP": moment_ret_scores["short"]["MR-mAP"]["average"],
-            "MR-middle-mAP": moment_ret_scores["middle"]["MR-mAP"]["average"],
-            "MR-long-mAP": moment_ret_scores["long"]["MR-mAP"]["average"],
-            "MR-full-R1@0.5": moment_ret_scores["full"]["MR-R1"]["0.5"],
-            "MR-full-R1@0.7": moment_ret_scores["full"]["MR-R1"]["0.7"],
-        }
+        if is_nms:
+            moment_ret_scores_brief = {
+                "MR-R1@0.5 (nms)": moment_ret_scores["full"]["MR-RK"]["0.5@1"],
+                "MR-R5@0.5 (nms)": moment_ret_scores["full"]["MR-RK"]["0.5@5"],
+                "MR-R10@0.5 (nms)": moment_ret_scores["full"]["MR-RK"]["0.5@10"],
+
+            }
+        else:
+            moment_ret_scores_brief = {
+                "MR-mAP": moment_ret_scores["full"]["MR-mAP"]["average"],
+
+                "MR-R1@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@1"],
+                "MR-R5@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@5"],
+                "MR-R10@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@10"],
+                "(short) MR-R1@0.5": moment_ret_scores["short_0_10"]["MR-RK"]["0.5@1"],
+                "(middle) MR-R1@0.5": moment_ret_scores["middle_10_20"]["MR-RK"]["0.5@1"],
+                "(long) MR-R1@0.5": moment_ret_scores["long_20_30"]["MR-RK"]["0.5@1"],
+            }
         eval_metrics_brief.update(
             sorted([(k, v) for k, v in moment_ret_scores_brief.items()], key=lambda x: x[0]))
 
-    if "pred_saliency_scores" in submission[0]:
+    # TODO no highlight score calculation
+    if "pred_saliency_scores" in submission[0] and False:
         highlight_det_scores = eval_highlight(
             submission, ground_truth, verbose=verbose)
         eval_metrics.update(highlight_det_scores)

@@ -7,7 +7,7 @@ from utils.basic_utils import mkdirp, load_json, save_json, make_zipfile, dict_t
 
 
 class BaseOptions(object):
-    #saved_option_filename = "opt.json"
+    # saved_option_filename = "opt.json"
     ckpt_filename = "model.ckpt"
     tensorboard_log_dir = "tensorboard_log"
     train_log_filename = "train.log.txt"
@@ -48,7 +48,7 @@ class BaseOptions(object):
         parser.add_argument("--max_es_cnt", type=int, default=200,
                             help="number of epochs to early stop, use -1 to disable early stop")
         parser.add_argument("--bsz", type=int, default=32, help="mini-batch size")
-        parser.add_argument("--eval_bsz", type=int, default=100,
+        parser.add_argument("--eval_bsz", type=int, default=32,
                             help="mini-batch size at inference, for query")
         parser.add_argument("--grad_clip", type=float, default=0.1, help="perform gradient clip, -1: disable")
         parser.add_argument("--eval_untrained", action="store_true", help="Evaluate on un-trained model")
@@ -61,8 +61,8 @@ class BaseOptions(object):
 
         # Data config
         parser.add_argument("--max_q_l", type=int, default=200)
-        parser.add_argument("--max_v_l", type=int, default=500)
-        parser.add_argument("--clip_length", type=int, default=2)
+        parser.add_argument("--max_v_l", type=int, default=900)
+        parser.add_argument("--clip_length", type=float, default=2)
         parser.add_argument("--max_windows", type=int, default=5)
 
         parser.add_argument("--train_path", type=str, default=None)
@@ -142,19 +142,27 @@ class BaseOptions(object):
                                  "(or non-minimum suppression for distance)"
                                  "to post-processing the predictions. "
                                  "-1: do not use nms. [0, 1]")
-        #long_nlq
-        parser.add_argument('--sampling_fps', default=0.5, type=float, help="dataloader sampling fps")
+        # long_nlq
+        parser.add_argument('--sampling_fps', default=5, type=float, help="dataloader sampling fps")
         parser.add_argument("--saved_option_filename", type=str, default="opt_mad.json")
         parser.add_argument("--cuda_visible_devices", nargs="*", type=int, default=None,
                             help="list of cuda visible devices")
         parser.add_argument("--eval_results_dir", type=str, default=None,
-                                 help="dir to save results, if not set, fall back to training results_dir")
-        parser.add_argument("--sampling_mode", type=str, default="fixed",
-                                 help="Available Frame sampling modes are: fixed, random, pooling")
+                            help="dir to save results, if not set, fall back to training results_dir")
+        parser.add_argument("--sampling_mode", type=str, default="offline",
+                            help="use offline or online sampling", choices=['online'])
         parser.add_argument("--lang_feat_path", type=str, default="CLIP_L14_language_tokens_features.h5")
+        parser.add_argument("--scheduler", type=str, default="step_lr", choices=['step_lr', 'cosnl', 'reduce_plateau'])
+        parser.add_argument("--use_warmup", action="store_true",
+                            help="use warump for 3 epochs")
+        parser.add_argument("--dataset_fps", type=float, default=5,
+                            help="FPS sampling rate of the used dataset (MAD=5)")
+        parser.add_argument("--use_exact_ts", action="store_true",
+                            help="use exact timestamps instead of rounded to sampling fps")
+        parser.add_argument("--no_shuffle", action="store_true",
+                            help="dont shuffle training data")
 
         self.parser = parser
-
 
     def display_save(self, opt):
         args = vars(opt)
@@ -184,6 +192,7 @@ class BaseOptions(object):
                                "max_pred_l", "min_pred_l",
                                "resume", "resume_all", "no_sort_results"]:
                     setattr(opt, arg, saved_options[arg])
+                    # TODO fix
             # opt.no_core_driver = True
             if opt.eval_results_dir is not None:
                 opt.results_dir = opt.eval_results_dir
@@ -193,8 +202,8 @@ class BaseOptions(object):
 
             ctx_str = opt.ctx_mode + "_sub" if any(["sub_ctx" in p for p in opt.v_feat_dirs]) else opt.ctx_mode
             opt.results_dir = os.path.join(opt.results_root, opt.eval_results_dir)
-                                          # "-".join([opt.dset_name, ctx_str, opt.exp_id,
-                                                 #    time.strftime("%Y_%m_%d_%H_%M_%S")]))
+            # "-".join([opt.dset_name, ctx_str, opt.exp_id,
+            #    time.strftime("%Y_%m_%d_%H_%M_%S")]))
             mkdirp(opt.results_dir)
             # save a copy of current code
             code_dir = os.path.dirname(os.path.realpath(__file__))
@@ -231,8 +240,8 @@ class TestOptions(BaseOptions):
     def initialize(self):
         BaseOptions.initialize(self)
         # also need to specify --eval_split_name
-        self.parser.add_argument("--eval_id", type=str, help="evaluation id")
-        #self.parser.add_argument("--eval_results_dir", type=str, default=None,
-                                 #help="dir to save results, if not set, fall back to training results_dir")
+        #self.parser.add_argument("--eval_id", type=str, help="evaluation id", default='1')
+        # self.parser.add_argument("--eval_results_dir", type=str, default=None,
+        # help="dir to save results, if not set, fall back to training results_dir")
         self.parser.add_argument("--model_dir", type=str,
                                  help="dir contains the model file, will be converted to absolute path afterwards")
