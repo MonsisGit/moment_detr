@@ -16,7 +16,8 @@ from ignite.handlers.param_scheduler import create_lr_scheduler_with_warmup
 from moment_detr.config import TestOptions
 from moment_detr.model import build_model
 from moment_detr.span_utils import span_cxw_to_xx
-from moment_detr.start_end_dataset import StartEndDataset, start_end_collate, prepare_batch_inputs, collate_fn_replace_corrupted
+from moment_detr.start_end_dataset import StartEndDataset, start_end_collate, prepare_batch_inputs, \
+    collate_fn_replace_corrupted
 from moment_detr.postprocessing_moment_detr import PostProcessorDETR
 from standalone_eval.eval import eval_submission
 from utils.basic_utils import save_jsonl, save_json
@@ -47,10 +48,7 @@ def eval_epoch_post_processing(submission, opt, gt_data, save_submission_filenam
     # IOU_THDS = (0.5, 0.7)
     logger.info("Saving/Evaluating before nms results")
     submission_path = os.path.join(opt.results_dir, save_submission_filename)
-    try:
-        save_jsonl(submission, submission_path)
-    except Exception as e:
-        print(e)
+    save_jsonl(submission, submission_path)
 
     if opt.eval_split_name in ["val", "test"]:  # since test_public has no GT
         metrics = eval_submission(
@@ -218,7 +216,7 @@ def setup_model(opt):
     elif opt.scheduler == 'reduce_plateau':
         lr_scheduler = ReduceLROnPlateau(optimizer,
                                          mode='min',
-                                         factor=0.2,
+                                         factor=0.5,
                                          patience=10)
     elif opt.scheduler == 'step_lr':
         lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, opt.lr_drop, gamma=0.5)
@@ -241,14 +239,17 @@ def setup_model(opt):
 
 
 def start_inference():
-    logger.info("Setup config, data and model...")
     opt = TestOptions().parse()
     cudnn.benchmark = True
     cudnn.deterministic = False
 
     assert opt.eval_path is not None
+    if 'val' in opt.eval_path:
+        opt.eval_path = opt.eval_path.replace('val', 'test')
+        opt.dset_name = 'test'
+
     eval_dataset = StartEndDataset(
-        dset_name='val',
+        dset_name=opt.dset_name,
         data_path=opt.eval_path,
         v_feat_dirs=opt.v_feat_dirs,
         q_feat_dir=opt.t_feat_dir,
@@ -273,9 +274,10 @@ def start_inference():
     )
 
     model, criterion, _, _ = setup_model(opt)
-    save_submission_filename = "inference_{}_{}_{}_preds.jsonl".format(
-        opt.dset_name, opt.eval_split_name, opt.eval_id)
-    logger.info("Starting inference...")
+    # save_submission_filename = "inference_{}_{}_{}_preds.jsonl".format(
+    #    opt.dset_name, opt.eval_split_name, opt.eval_id)
+    save_submission_filename = "inference_test_preds.jsonl"
+    logger.info(f"Starting inference on {opt.eval_path.split('/')[-1]}")
     with torch.no_grad():
         metrics_no_nms, metrics_nms, eval_loss_meters, latest_file_paths = \
             eval_epoch(model, eval_dataset, opt, save_submission_filename, criterion=criterion)

@@ -240,7 +240,7 @@ class TestOptions(BaseOptions):
     def initialize(self):
         BaseOptions.initialize(self)
         # also need to specify --eval_split_name
-        self.parser.add_argument("--eval_id", type=str, help="evaluation id")
+        #self.parser.add_argument("--eval_id", type=str, help="evaluation id", default='1')
         # self.parser.add_argument("--eval_results_dir", type=str, default=None,
         # help="dir to save results, if not set, fall back to training results_dir")
         self.parser.add_argument("--model_dir", type=str,

@@ -59,6 +59,9 @@ class StartEndDataset(Dataset):
         self.using_mat_dataset = True if "mad_dataset" in self.data_path else False
         if "val" in data_path or "test" in data_path:
             assert txt_drop_ratio == 0
+            self.is_val = True
+        else:
+            self.is_val = False
 
         # checks
         assert q_feat_type in self.Q_FEAT_TYPES
@@ -77,12 +80,7 @@ class StartEndDataset(Dataset):
         self.sampling_fps = sampling_fps
         # self.data_keys = [d['qid'] for d in self.data]
         self.use_exact_ts = use_exact_ts
-        self.is_val = True if 'val' in self.dset_name else False
         self.val_offset = 0
-
-        # set seed
-        # np.random.seed(seed=42)
-        # random.seed(42)
 
     def load_data(self):
         datalist = load_jsonl(self.data_path)
@@ -130,7 +128,7 @@ class StartEndDataset(Dataset):
                     model_inputs["saliency_pos_labels"], model_inputs["saliency_neg_labels"] = \
                         self.get_saliency_labels_sub_as_query(meta["relevant_windows"][0], ctx_l)  # only one gt
             return dict(meta=meta, model_inputs=model_inputs)
-        except:
+        except Exception as e:
             return None
 
     def get_saliency_labels_sub_as_query(self, gt_window, ctx_l, max_n=2):

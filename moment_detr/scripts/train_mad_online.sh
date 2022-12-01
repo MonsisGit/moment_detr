@@ -30,7 +30,7 @@ max_q_l=100
 #this must be fps * window length
 max_v_l=150
 sheduler=reduce_plateau
-max_es_cnt=10 #early stopping patience
+max_es_cnt=30 #early stopping patience
 use_warmup=True
 nms_thd=0.3
 num_queries=50
