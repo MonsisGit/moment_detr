@@ -41,6 +41,7 @@ class Transformer(nn.Module):
         self.d_model = d_model
         self.nhead = nhead
 
+
     def _reset_parameters(self):
         for p in self.parameters():
             if p.dim() > 1:
@@ -60,6 +61,7 @@ class Transformer(nn.Module):
         # flatten NxCxHxW to HWxNxC
         bs, l, d = src.shape
         src = src.permute(1, 0, 2)  # (L, batch_size, d)
+
         pos_embed = pos_embed.permute(1, 0, 2)   # (L, batch_size, d)
         query_embed = query_embed.unsqueeze(1).repeat(1, bs, 1)  # (#queries, batch_size, d)
 

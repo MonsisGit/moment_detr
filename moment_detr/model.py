@@ -83,6 +83,9 @@ class MomentDETR(nn.Module):
         self.saliency_proj = nn.Linear(hidden_dim, 1)
         self.aux_loss = aux_loss
 
+        # CLS Token
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, hidden_dim))
+
     def forward(self, src_txt, src_txt_mask, src_vid, src_vid_mask):
         """The forward expects two tensors:
                - src_txt: [batch_size, L_txt, D_txt]
@@ -100,8 +103,17 @@ class MomentDETR(nn.Module):
                - "aux_outputs": Optional, only returned when auxilary losses are activated. It is a list of
                                 dictionnaries containing the two above keys for each decoder layer.
         """
+        bs = src_vid.shape[0]
         src_vid = self.input_vid_proj(src_vid)
         src_txt = self.input_txt_proj(src_txt)
+
+        # https: // amaarora.github.io / 2021 / 01 / 18 / ViT.html
+        cls_token = self.cls_token.expand(bs, -1, -1).to(src_vid.device)
+        cls_mask = torch.ones(size=(bs, 1)).to(src_vid.device)
+
+        src_vid = torch.cat([cls_token, src_vid], dim=1)  # (bsz, cls+L_vid+L_txt, d)
+        src_vid_mask = torch.cat([cls_mask, src_vid_mask], dim=1)
+
         src = torch.cat([src_vid, src_txt], dim=1)  # (bsz, L_vid+L_txt, d)
         mask = torch.cat([src_vid_mask, src_txt_mask], dim=1).bool()  # (bsz, L_vid+L_txt)
         # TODO should we remove or use different positional embeddings to the src_txt?
@@ -109,6 +121,7 @@ class MomentDETR(nn.Module):
         pos_txt = self.txt_position_embed(src_txt) if self.use_txt_pos else torch.zeros_like(src_txt)  # (bsz, L_txt, d)
         # pos_txt = torch.zeros_like(src_txt)
         # pad zeros for txt positions
+
         pos = torch.cat([pos_vid, pos_txt], dim=1)
         # (#layers, bsz, #queries, d), (bsz, L_vid+L_txt, d)
         hs, memory = self.transformer(src, ~mask, self.query_embed.weight, pos)
@@ -119,7 +132,11 @@ class MomentDETR(nn.Module):
         out = {'pred_logits': outputs_class[-1], 'pred_spans': outputs_coord[-1]}
 
         txt_mem = memory[:, src_vid.shape[1]:]  # (bsz, L_txt, d)
-        vid_mem = memory[:, :src_vid.shape[1]]  # (bsz, L_vid, d)
+        vid_mem = memory[:, 1:src_vid.shape[1]]  # (bsz, L_vid, d)
+
+        #TODO add head
+        cls_mem = memory[:, None, 0]
+
         if self.contrastive_align_loss:
             proj_queries = F.normalize(self.contrastive_align_projection_query(hs), p=2, dim=-1)
             proj_txt_mem = F.normalize(self.contrastive_align_projection_txt(txt_mem), p=2, dim=-1)
