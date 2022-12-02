@@ -275,7 +275,11 @@ class StartEndDataset(Dataset):
         if not self.is_val:
             gt_moment = self._get_gt_moment(meta)
             window, is_foreground = self._sample_window(gt_moment, meta)
-            start_moment, stop_moment = self._calc_new_moment(window, gt_moment, meta)
+            if is_foreground:
+                start_moment, stop_moment = self._calc_new_moment(window, gt_moment, meta)
+            else:
+                #if background is sampled, the network should predict zeros
+                start_moment = stop_moment = 0
 
         else:
             window = [max(meta['window'][0], 0), min(meta['window'][1], self.video_feats[meta['vid']].shape[0])]
@@ -334,18 +338,30 @@ class StartEndDataset(Dataset):
             stop_window = int(np.floor(meta['duration'] * self.dataset_fps))
             start_window = stop_window - self.clip_length_in_frames
 
-        if random.random() < 0.5:
-            # sample negative window
-
-            larger_neg_window = max([start_window, int(np.floor(meta['duration'] * self.dataset_fps)) - stop_window])
-            neg_start_window = max(int(random.random() * larger_neg_window), 0)
-            neg_stop_window = min(neg_start_window + int(random.random() * (larger_neg_window - neg_start_window)),
-                                  int(np.floor(meta['duration'] * self.dataset_fps)))
-
-            return [neg_start_window, neg_stop_window], False
+        # sample negative window
+        if random.random() < 0.2:
+            neg_start_window, neg_stop_window = self._sample_neg_window(start_window, stop_window, meta)
+            is_foreground = False
+            return [neg_start_window, neg_stop_window], is_foreground
 
         else:
-            return [start_window, stop_window], True
+            is_foreground = True
+            return [start_window, stop_window], is_foreground
+
+    def _sample_neg_window(self, start_window, stop_window, meta):
+
+        larger_neg_window = max([start_window, int(np.floor(meta['duration'] * self.dataset_fps)) - stop_window])
+        neg_start_window = max(int(random.random() * larger_neg_window), 0)
+        neg_stop_window = neg_start_window + self.clip_length_in_frames
+
+        if not neg_stop_window <= meta['duration'] * self.dataset_fps:
+            neg_stop_window = int(np.floor(meta['duration'] * self.dataset_fps))
+            neg_start_window = neg_stop_window - self.clip_length_in_frames
+
+        if start_window <= neg_start_window <= stop_window or start_window <= neg_stop_window <= stop_window:
+            return self._sample_neg_window(start_window, stop_window, meta)
+
+        return neg_start_window, neg_stop_window
 
     def _calc_new_moment(self, window, gt_moment, meta):
         start_window, stop_window = window
@@ -363,8 +379,6 @@ class StartEndDataset(Dataset):
 
         # assert 0 <= start_moment <= self.clip_length_in_seconds, f'start moment ({start_moment}) outside clip'
         # assert 0 <= stop_moment <= self.clip_length_in_seconds, f'stop moment ({stop_moment}) outside clip'
-
-        moment_enclosing_window = True if stop_moment == self.clip_length_in_seconds and start_moment == 0 else False
 
         return start_moment, stop_moment
 
