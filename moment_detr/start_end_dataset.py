@@ -126,12 +126,16 @@ class StartEndDataset(Dataset):
                         self.get_saliency_labels(meta["relevant_clip_ids"], meta["saliency_scores"], ctx_l)
                 else:
                     model_inputs["saliency_pos_labels"], model_inputs["saliency_neg_labels"] = \
-                        self.get_saliency_labels_sub_as_query(meta["relevant_windows"][0], ctx_l)  # only one gt
+                        self.get_saliency_labels_sub_as_query(meta, ctx_l)  # only one gt
             return dict(meta=meta, model_inputs=model_inputs)
         except Exception as e:
             return None
 
-    def get_saliency_labels_sub_as_query(self, gt_window, ctx_l, max_n=2):
+    def get_saliency_labels_sub_as_query(self, meta, ctx_l, max_n=2):
+        if not meta['foreground']:
+            return [-1, -1], [-1, -1]
+
+        gt_window = meta["relevant_windows"][0]
         gt_st = int(gt_window[0] / self.clip_len)
         gt_ed = max(0, min(int(gt_window[1] / self.clip_len), ctx_l) - 1)
         if gt_st > gt_ed:
@@ -148,10 +152,8 @@ class StartEndDataset(Dataset):
         if len(neg_pool) <= 0:
             return [-1, -1], [-1, -1]
         else:
-            try:
-                neg_clip_indices = random.sample(neg_pool, k=max_n)
-            except:
-                return [-1, -1], [-1, -1]
+            neg_clip_indices = random.sample(neg_pool, k=max_n)
+
         return pos_clip_indices, neg_clip_indices
 
     def get_saliency_labels(self, rel_clip_ids, scores, ctx_l, max_n=1, add_easy_negative=True):
@@ -272,15 +274,17 @@ class StartEndDataset(Dataset):
 
         if not self.is_val:
             gt_moment = self._get_gt_moment(meta)
-            window = self._sample_window(gt_moment, meta)
+            window, is_foreground = self._sample_window(gt_moment, meta)
             start_moment, stop_moment = self._calc_new_moment(window, gt_moment, meta)
 
         else:
             window = [max(meta['window'][0], 0), min(meta['window'][1], self.video_feats[meta['vid']].shape[0])]
             start_moment, stop_moment = meta["relevant_windows"][0]
+            is_foreground = True
 
         _video_feats = self.video_feats[meta['vid']][window[0]:window[1]]
-        if self.sampling_fps != self.dataset_fps:
+        # TODO this doesnt seem to work
+        if self.sampling_fps != self.dataset_fps and False:
             _video_feats = _video_feats[::int(self.dataset_fps / self.sampling_fps)]
 
         meta = {
@@ -289,6 +293,7 @@ class StartEndDataset(Dataset):
             'relevant_windows': [[start_moment, stop_moment]],
             'query': meta['query'],
             'duration': self.clip_length_in_seconds,
+            'foreground': is_foreground
         }
         return _video_feats, meta
 
@@ -329,10 +334,20 @@ class StartEndDataset(Dataset):
             stop_window = int(np.floor(meta['duration'] * self.dataset_fps))
             start_window = stop_window - self.clip_length_in_frames
 
-        return [start_window, stop_window]
+        if random.random() < 0.5:
+            # sample negative window
+
+            larger_neg_window = max([start_window, int(np.floor(meta['duration'] * self.dataset_fps)) - stop_window])
+            neg_start_window = max(int(random.random() * larger_neg_window), 0)
+            neg_stop_window = min(neg_start_window + int(random.random() * (larger_neg_window - neg_start_window)),
+                                  int(np.floor(meta['duration'] * self.dataset_fps)))
+
+            return [neg_start_window, neg_stop_window], False
+
+        else:
+            return [start_window, stop_window], True
 
     def _calc_new_moment(self, window, gt_moment, meta):
-
         start_window, stop_window = window
         start_idx, stop_idx = gt_moment
 
@@ -348,6 +363,8 @@ class StartEndDataset(Dataset):
 
         # assert 0 <= start_moment <= self.clip_length_in_seconds, f'start moment ({start_moment}) outside clip'
         # assert 0 <= stop_moment <= self.clip_length_in_seconds, f'stop moment ({stop_moment}) outside clip'
+
+        moment_enclosing_window = True if stop_moment == self.clip_length_in_seconds and start_moment == 0 else False
 
         return start_moment, stop_moment
 

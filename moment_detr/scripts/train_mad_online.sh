@@ -45,6 +45,9 @@ sampling_mode=online
 sampling_fps=5
 eval_results_dir=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_lrd${lr_drop}_dr${data_ratio}_wl${window_length}_sm${sampling_mode}_fps${sampling_fps}_lws${lw_saliency}_lloss${label_loss_coef}_${sheduler}_queries${num_queries}
 
+#resume
+resume=${root}momentDETR_results/${eval_results_dir}/model_best.ckpt
+
 if [ ${window_length} -gt ${max_v_l} ]; then
     echo "Window length larger than max_v_l"
     exit 1
@@ -89,4 +92,6 @@ PYTHONPATH=$PYTHONPATH:. python moment_detr/train.py \
 --num_queries ${num_queries} \
 --max_before_nms ${num_queries} \
 --max_after_nms ${num_queries} \
+--resume_all \
+--resume ${resume}
 ${@:1}

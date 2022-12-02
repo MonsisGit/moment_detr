@@ -162,6 +162,7 @@ class BaseOptions(object):
         parser.add_argument("--no_shuffle", action="store_true",
                             help="dont shuffle training data")
 
+
         self.parser = parser
 
     def display_save(self, opt):
