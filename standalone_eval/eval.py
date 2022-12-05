@@ -193,6 +193,10 @@ def eval_moment_retrieval(submission, ground_truth, verbose=True, is_nms=False):
         if len(_submission) != 0:
             print(f"{name}: {l_range}, {len(_ground_truth)}/{len(ground_truth)}="
                   f"{100 * len(_ground_truth) / len(ground_truth):.2f}% examples.")
+
+            if 'cls' in _ground_truth[0].keys():
+                cls_accuracy = compute_cls_acc(_submission, _ground_truth)
+
             iou_thd2average_precision = compute_mr_ap(_submission, _ground_truth, num_workers=8, chunksize=50)
             # iou_thd2recall_at_k = compute_mr_r1(_submission, _ground_truth)
             iou_thd2recall_at_k = compute_mr_rk(submission=_submission,
@@ -226,6 +230,12 @@ def eval_moment_retrieval(submission, ground_truth, verbose=True, is_nms=False):
 
             ret_metrics[name] = {"MR-mAP": placeholder_scores_mAP, "MR-RK": placeholder_scores_mr}
     return ret_metrics
+
+
+def compute_cls_acc(_submission, _ground_truth):
+    #TODO should we compute this
+    cls_acc = 0
+    return cls_acc
 
 
 def compute_hl_hit1(qid2preds, qid2gt_scores_binary):

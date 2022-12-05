@@ -19,8 +19,8 @@ eval_split_name=val
 v_feat_dim=768
 t_feat_dim=768
 bsz=128
-cuda_visible_devices=0
-data_ratio=1
+cuda_visible_devices=1
+data_ratio=0.1
 num_workers=8
 n_epoch=200
 lr=4e-4
@@ -33,12 +33,14 @@ sheduler=reduce_plateau
 max_es_cnt=30 #early stopping patience
 use_warmup=True
 nms_thd=0.3
-num_queries=50
+num_queries=10
 
 ## Losses
 lw_saliency=4
 set_cost_class=4   #"Class coefficient in the matching cost"
 label_loss_coef=4
+lw_cls=1
+
 ##set for results tracking!
 window_length=30
 sampling_mode=online
@@ -92,6 +94,5 @@ PYTHONPATH=$PYTHONPATH:. python moment_detr/train.py \
 --num_queries ${num_queries} \
 --max_before_nms ${num_queries} \
 --max_after_nms ${num_queries} \
---resume_all \
---resume ${resume}
+--lw_cls ${lw_cls}
 ${@:1}

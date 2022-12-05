@@ -86,6 +86,7 @@ def train_epoch(model, criterion, train_loader, optimizer, opt, epoch_i, tb_writ
         timer_start = time.time()
         outputs = model(**model_inputs)
         loss_dict = criterion(outputs, targets)
+        #TODO doesnt return CLS loss yet
         weight_dict = criterion.weight_dict
         losses = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
         time_meters["model_forward_time"].update(time.time() - timer_start)
@@ -215,7 +216,10 @@ def train(model, criterion, optimizer, lr_scheduler, train_dataset, val_dataset,
 
                 best_file_paths = [e.replace("latest", "best") for e in latest_file_paths]
                 for src, tgt in zip(latest_file_paths, best_file_paths):
-                    os.renames(src, tgt)
+                    try:
+                        os.renames(src, tgt)
+                    except Exception as e:
+                        print(e)
                 logger.info("The checkpoint file has been updated.")
             else:
                 es_cnt += 1

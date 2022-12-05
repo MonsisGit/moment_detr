@@ -137,7 +137,8 @@ def compute_mr_results(model, eval_loader, opt, epoch_i=None, criterion=None, tb
                 query=meta["query"],
                 vid=meta['vid'],
                 pred_relevant_windows=cur_ranked_preds,
-                pred_saliency_scores=saliency_scores[idx]
+                pred_saliency_scores=saliency_scores[idx],
+                pred_cls=outputs['pred_cls'].tolist()[idx][0]
             )
             mr_res.append(cur_query_pred)
 

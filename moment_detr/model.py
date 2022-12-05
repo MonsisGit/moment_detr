@@ -369,6 +369,9 @@ class SetCriterion(nn.Module):
 
         # Retrieve the matching between the outputs of the last layer and the targets
         # list(tuples), each tuple is (pred_span_indices, tgt_span_indices)
+        del outputs_without_aux["pred_cls"]
+        del targets["cls_label"]
+
         indices = self.matcher(outputs_without_aux, targets)
         '''
         Returns:
@@ -382,7 +385,8 @@ class SetCriterion(nn.Module):
         # Compute all the requested losses
         losses = {}
         for loss in self.losses:
-            losses.update(self.get_loss(loss, outputs, targets, indices))
+            if loss != "cls":
+                losses.update(self.get_loss(loss, outputs, targets, indices))
 
         # In case of auxiliary losses, we repeat this process with the output of each intermediate layer.
         if 'aux_outputs' in outputs:
