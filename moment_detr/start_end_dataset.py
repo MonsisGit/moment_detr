@@ -105,6 +105,7 @@ class StartEndDataset(Dataset):
             if self.use_video and self.using_mat_dataset:
                 model_inputs["video_feat"], meta = self._get_video_feat_by_vid(meta)  # (Lv, Dv)
                 ctx_l = len(model_inputs["video_feat"])
+                model_inputs['cls_label'] = meta['foreground']
 
             else:
                 ctx_l = self.max_v_l
@@ -278,7 +279,7 @@ class StartEndDataset(Dataset):
             if is_foreground:
                 start_moment, stop_moment = self._calc_new_moment(window, gt_moment, meta)
             else:
-                #if background is sampled, the network should predict zeros
+                # if background is sampled, the network should predict zeros
                 start_moment = stop_moment = 0
 
         else:
@@ -350,8 +351,12 @@ class StartEndDataset(Dataset):
 
     def _sample_neg_window(self, start_window, stop_window, meta):
 
-        larger_neg_window = max([start_window, int(np.floor(meta['duration'] * self.dataset_fps)) - stop_window])
-        neg_start_window = max(int(random.random() * larger_neg_window), 0)
+        sample_windows = [start_window, int(np.floor(meta['duration'] * self.dataset_fps)) - stop_window]
+        idx_larger_window = np.argmax(sample_windows)
+        if idx_larger_window == 0:
+            neg_start_window = max(int(0.5 * random.random() * sample_windows[idx_larger_window]), 0)
+        else:
+            neg_start_window = max(int(sample_windows[idx_larger_window] * (1 + random.random())), 0)
         neg_stop_window = neg_start_window + self.clip_length_in_frames
 
         if not neg_stop_window <= meta['duration'] * self.dataset_fps:
@@ -395,6 +400,9 @@ def start_end_collate(batch):
         if k in ["saliency_pos_labels", "saliency_neg_labels"]:
             batched_data[k] = torch.LongTensor([e["model_inputs"][k] for e in batch])
             continue
+        if k == 'cls_label':
+            batched_data[k] = torch.tensor([e["model_inputs"][k] for e in batch])
+            continue
         batched_data[k] = pad_sequences_1d(
             [e["model_inputs"][k] for e in batch], dtype=torch.float32, fixed_length=None)
     return batch_meta, batched_data
@@ -416,6 +424,9 @@ def prepare_batch_inputs(batched_model_inputs, device, non_blocking=False):
     if "saliency_pos_labels" in batched_model_inputs:
         for name in ["saliency_pos_labels", "saliency_neg_labels"]:
             targets[name] = batched_model_inputs[name].to(device, non_blocking=non_blocking)
+
+    if "cls_label" in batched_model_inputs:
+        targets["cls_label"] = batched_model_inputs['cls_label'].to(device, non_blocking=non_blocking)
 
     targets = None if len(targets) == 0 else targets
     return model_inputs, targets

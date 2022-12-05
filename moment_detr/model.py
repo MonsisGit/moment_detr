@@ -50,6 +50,7 @@ class MomentDETR(nn.Module):
         self.max_v_l = max_v_l
         span_pred_dim = 2 if span_loss_type == "l1" else max_v_l * 2
         self.span_embed = MLP(hidden_dim, hidden_dim, span_pred_dim, 3)
+        self.cls_embed = MLP(hidden_dim, hidden_dim, 2, 3)
         self.class_embed = nn.Linear(hidden_dim, 2)  # 0: background, 1: foreground
         self.use_txt_pos = use_txt_pos
         self.n_input_proj = n_input_proj
@@ -124,18 +125,22 @@ class MomentDETR(nn.Module):
 
         pos = torch.cat([pos_vid, pos_txt], dim=1)
         # (#layers, bsz, #queries, d), (bsz, L_vid+L_txt, d)
+        #TODO remove cls from decoder part
         hs, memory = self.transformer(src, ~mask, self.query_embed.weight, pos)
         outputs_class = self.class_embed(hs)  # (#layers, batch_size, #queries, #classes)
         outputs_coord = self.span_embed(hs)  # (#layers, bsz, #queries, 2 or max_v_l * 2)
         if self.span_loss_type == "l1":
             outputs_coord = outputs_coord.sigmoid()
-        out = {'pred_logits': outputs_class[-1], 'pred_spans': outputs_coord[-1]}
 
         txt_mem = memory[:, src_vid.shape[1]:]  # (bsz, L_txt, d)
         vid_mem = memory[:, 1:src_vid.shape[1]]  # (bsz, L_vid, d)
 
-        #TODO add head
-        cls_mem = memory[:, None, 0]
+        cls_mem = memory[:, None, 0]  # bsz, 1, d
+        outputs_cls = self.cls_embed(cls_mem)
+
+        out = {'pred_logits': outputs_class[-1],
+               'pred_spans': outputs_coord[-1],
+               'pred_cls': outputs_cls}
 
         if self.contrastive_align_loss:
             proj_queries = F.normalize(self.contrastive_align_projection_query(hs), p=2, dim=-1)
@@ -258,6 +263,19 @@ class SetCriterion(nn.Module):
             losses['class_error'] = 100 - accuracy(src_logits[idx], self.foreground_label)[0]
         return losses
 
+    def loss_cls(self, outputs, targets, indices, log=True):
+        """Classification loss (NLL)
+        targets dicts must contain the key "labels" containing a tensor of dim [nb_target_boxes]
+        """
+
+        cls_logits = outputs['pred_cls'].squeeze()
+        cls_targets = targets['cls_label'].type(torch.int64)
+
+        loss_ce = F.cross_entropy(cls_logits, cls_targets)
+        losses = {'loss_cls': loss_ce.mean()}
+
+        return losses
+
     def loss_saliency(self, outputs, targets, indices, log=True):
         """higher scores for positive clips"""
         if "saliency_pos_labels" not in targets:
@@ -335,6 +353,7 @@ class SetCriterion(nn.Module):
             "labels": self.loss_labels,
             "contrastive_align": self.loss_contrastive_align,
             "saliency": self.loss_saliency,
+            "cls": self.loss_cls
         }
         assert loss in loss_map, f'do you really want to compute {loss} loss?'
         return loss_map[loss](outputs, targets, indices, **kwargs)
@@ -370,7 +389,7 @@ class SetCriterion(nn.Module):
             for i, aux_outputs in enumerate(outputs['aux_outputs']):
                 indices = self.matcher(aux_outputs, targets)
                 for loss in self.losses:
-                    if "saliency" == loss:  # skip as it is only in the top layer
+                    if loss in ['saliency','cls']:  # skip as it is only in the top layer
                         continue
                     kwargs = {}
                     l_dict = self.get_loss(loss, aux_outputs, targets, indices, **kwargs)
@@ -454,7 +473,9 @@ def build_model(args):
     weight_dict = {"loss_span": args.span_loss_coef,
                    "loss_giou": args.giou_loss_coef,
                    "loss_label": args.label_loss_coef,
-                   "loss_saliency": args.lw_saliency}
+                   "loss_saliency": args.lw_saliency,
+                   "loss_cls": args.lw_cls}
+
     if args.contrastive_align_loss:
         weight_dict["loss_contrastive_align"] = args.contrastive_align_loss_coef
     # TODO this is a hack
@@ -464,7 +485,7 @@ def build_model(args):
             aux_weight_dict.update({k + f'_{i}': v for k, v in weight_dict.items() if k != "loss_saliency"})
         weight_dict.update(aux_weight_dict)
 
-    losses = ['spans', 'labels', 'saliency']
+    losses = ['spans', 'labels', 'saliency','cls']
     if args.contrastive_align_loss:
         losses += ["contrastive_align"]
     # TODO anschauen

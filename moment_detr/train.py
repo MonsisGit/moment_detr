@@ -305,7 +305,7 @@ def start_training():
         eval_dataset = None
 
     model, criterion, optimizer, lr_scheduler = setup_model(opt)
-    logger.info(f"Model {model}")
+    logger.info(f"Model {model} with #Params: {count_parameters(model)}")
     # count_parameters(model)
     logger.info("Start Training...")
     train(model, criterion, optimizer, lr_scheduler, train_dataset, eval_dataset, opt)
