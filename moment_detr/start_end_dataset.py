@@ -340,7 +340,7 @@ class StartEndDataset(Dataset):
             start_window = stop_window - self.clip_length_in_frames
 
         # sample negative window
-        if random.random() < 0.2:
+        if random.random() < 0.5:
             neg_start_window, neg_stop_window = self._sample_neg_window(start_window, stop_window, meta)
             is_foreground = False
             return [neg_start_window, neg_stop_window], is_foreground
@@ -365,6 +365,8 @@ class StartEndDataset(Dataset):
 
         if start_window <= neg_start_window <= stop_window or start_window <= neg_stop_window <= stop_window:
             return self._sample_neg_window(start_window, stop_window, meta)
+
+        #TODO add base condition for recursion (COUNTER)
 
         return neg_start_window, neg_stop_window
 

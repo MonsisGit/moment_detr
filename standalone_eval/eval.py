@@ -233,7 +233,7 @@ def eval_moment_retrieval(submission, ground_truth, verbose=True, is_nms=False):
 
 
 def compute_cls_acc(_submission, _ground_truth):
-    #TODO should we compute this
+    # TODO should we compute this
     cls_acc = 0
     return cls_acc
 
@@ -333,7 +333,7 @@ def eval_highlight(submission, ground_truth, verbose=True):
     return highlight_det_metrics
 
 
-def eval_submission(submission, ground_truth, verbose=True, match_number=True, is_nms=False):
+def eval_submission(submission, ground_truth, verbose=True, match_number=False, is_nms=False):
     """
     Args:
         submission: list(dict), each dict is {
@@ -364,6 +364,8 @@ def eval_submission(submission, ground_truth, verbose=True, match_number=True, i
     pred_qids = set([e["qid"] for e in submission])
     gt_qids = set([e["qid"] for e in ground_truth])
 
+    # TODO set match_number to False
+    match_number = False
     if match_number:
         assert pred_qids == gt_qids, \
             f"qids in ground_truth and submission must match. " \
