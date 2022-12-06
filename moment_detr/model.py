@@ -272,8 +272,9 @@ class SetCriterion(nn.Module):
 
         cls_logits = outputs['pred_cls'].squeeze()
         cls_targets = targets['cls_label'].type(torch.int64)
+        cls_targets = F.one_hot(cls_targets, num_classes=2).type(torch.float)
 
-        loss_ce = F.cross_entropy(cls_logits, cls_targets)
+        loss_ce = F.cross_entropy(cls_logits, cls_targets, reduction="none")
         losses = {'loss_cls': loss_ce.mean()}
 
         return losses

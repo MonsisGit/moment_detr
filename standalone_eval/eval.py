@@ -184,7 +184,7 @@ def eval_moment_retrieval(submission, ground_truth, verbose=True, is_nms=False):
     range_names = ["short", "middle", "long", "full"]
     range_names = [f'{d}_{length_ranges[idx][0]}_{length_ranges[idx][1]}' if d != 'full' else 'full' for idx, d in
                    enumerate(range_names)]
-
+    cls_acc, cls_recall, cls_precision = compute_cls_acc(submission, ground_truth)
     ret_metrics = {}
     for l_range, name in zip(length_ranges, range_names):
         if verbose:
@@ -194,8 +194,7 @@ def eval_moment_retrieval(submission, ground_truth, verbose=True, is_nms=False):
             print(f"{name}: {l_range}, {len(_ground_truth)}/{len(ground_truth)}="
                   f"{100 * len(_ground_truth) / len(ground_truth):.2f}% examples.")
 
-            if 'cls' in _ground_truth[0].keys():
-                cls_accuracy = compute_cls_acc(_submission, _ground_truth)
+
 
             iou_thd2average_precision = compute_mr_ap(_submission, _ground_truth, num_workers=8, chunksize=50)
             # iou_thd2recall_at_k = compute_mr_r1(_submission, _ground_truth)
@@ -229,13 +228,31 @@ def eval_moment_retrieval(submission, ground_truth, verbose=True, is_nms=False):
                                      '0.5@10': -1, }
 
             ret_metrics[name] = {"MR-mAP": placeholder_scores_mAP, "MR-RK": placeholder_scores_mr}
+
+    ret_metrics['CLS-Acc'] = round(cls_acc,2)
+    ret_metrics['CLS-Recall'] = round(cls_recall,2)
+    ret_metrics['CLS-Precision'] = round(cls_precision,2)
     return ret_metrics
 
 
 def compute_cls_acc(_submission, _ground_truth):
-    # TODO should we compute this
-    cls_acc = 0
-    return cls_acc
+    is_foreground = torch.tensor([int(gt['is_foreground']) for gt in _ground_truth])
+    pred_cls = [s['pred_cls'] for s in _submission]
+    pred_cls = F.softmax(torch.tensor(pred_cls),dim=1)
+    pred_cls = torch.argmax(pred_cls, dim=1)
+    cls_acc = (torch.sum(pred_cls == is_foreground) / is_foreground.shape[0]).float()
+
+    predicted_classes = pred_cls == 1
+    target_classes = is_foreground
+    target_true = torch.sum(target_classes == 1).float()
+    predicted_true = torch.sum(predicted_classes).float()
+    correct_true = torch.sum(
+        (predicted_classes == target_classes).type(torch.int64) * (predicted_classes == 1).type(torch.int64)).float()
+
+    recall = correct_true / target_true
+    precision = correct_true / predicted_true
+
+    return float(cls_acc), float(recall), float(precision)
 
 
 def compute_hl_hit1(qid2preds, qid2gt_scores_binary):
@@ -391,6 +408,9 @@ def eval_submission(submission, ground_truth, verbose=True, match_number=False, 
             }
         else:
             moment_ret_scores_brief = {
+                "CLS-Acc": moment_ret_scores["CLS-Acc"],
+                "CLS-Recall": moment_ret_scores["CLS-Recall"],
+                "CLS-Precision": moment_ret_scores["CLS-Precision"],
                 "MR-mAP": moment_ret_scores["full"]["MR-mAP"]["average"],
 
                 "MR-R1@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@1"],
