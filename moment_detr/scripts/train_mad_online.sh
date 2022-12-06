@@ -6,8 +6,8 @@ exp_id=exp
 
 ######## paths
 root=/nfs/data3/goldhofer/mad_dataset/
-train_path=${root}annotations/MAD_train_SMNone_FPS5_CL30_L2False_extsTrue.json
-eval_path=${root}annotations/MAD_val_SMNone_FPS5_CL30_L2False_extsTrue.json
+train_path=${root}annotations/MAD_train_SMNone_FPS5_CL30_exts_balanced.json
+eval_path=${root}annotations/MAD_val_SMNone_FPS5_CL30_exts_balanced.json
 results_root=${root}momentDETR_results
 v_feat_dirs=(/nfs/data3/goldhofer/mad_dataset/)
 t_feat_dir=/nfs/data3/goldhofer/mad_dataset/
@@ -20,9 +20,9 @@ v_feat_dim=768
 t_feat_dim=768
 bsz=128
 cuda_visible_devices=1
-data_ratio=0.1
+data_ratio=0.001
 num_workers=8
-n_epoch=200
+n_epoch=1
 lr=4e-4
 lr_drop=15
 clip_length=0.2
@@ -45,7 +45,7 @@ lw_cls=1
 window_length=30
 sampling_mode=online
 sampling_fps=5
-eval_results_dir=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_lrd${lr_drop}_dr${data_ratio}_wl${window_length}_sm${sampling_mode}_fps${sampling_fps}_lws${lw_saliency}_lloss${label_loss_coef}_${sheduler}_queries${num_queries}
+eval_results_dir=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_lrd${lr_drop}_dr${data_ratio}_wl${window_length}_fps${sampling_fps}_lws${lw_saliency}_lloss${label_loss_coef}_${sheduler}_negatives_balanced
 
 #resume
 resume=${root}momentDETR_results/${eval_results_dir}/model_best.ckpt

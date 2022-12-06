@@ -164,7 +164,6 @@ class BaseOptions(object):
         parser.add_argument("--no_shuffle", action="store_true",
                             help="dont shuffle training data")
 
-
         self.parser = parser
 
     def display_save(self, opt):
@@ -197,8 +196,8 @@ class BaseOptions(object):
                     setattr(opt, arg, saved_options[arg])
                     # TODO fix
             # opt.no_core_driver = True
-            if opt.eval_results_dir is not None:
-                opt.results_dir = opt.eval_results_dir
+            #if opt.eval_results_dir is not None:
+            #    opt.results_dir = opt.eval_results_dir
         else:
             if opt.exp_id is None:
                 raise ValueError("--exp_id is required for at a training option!")
@@ -243,8 +242,8 @@ class TestOptions(BaseOptions):
     def initialize(self):
         BaseOptions.initialize(self)
         # also need to specify --eval_split_name
-        #self.parser.add_argument("--eval_id", type=str, help="evaluation id", default='1')
-        # self.parser.add_argument("--eval_results_dir", type=str, default=None,
-        # help="dir to save results, if not set, fall back to training results_dir")
+        self.parser.add_argument("--eval_id", type=str, help="evaluation id", default='1')
+        #self.parser.add_argument("--eval_results_dir", type=str, default=None,
+        #                         help="dir to save results, if not set, fall back to training results_dir")
         self.parser.add_argument("--model_dir", type=str,
                                  help="dir contains the model file, will be converted to absolute path afterwards")

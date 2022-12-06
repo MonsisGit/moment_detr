@@ -4,8 +4,7 @@ l2_normalize=False
 sampling_fps=5
 clip_length_in_seconds=30
 process_fraction=1
-split=train
-use_exact_ts=True
+split=val
 
 if [[ ${sampling_mode} = None ]] && [[ ${sampling_fps} != ${dataset_fps} ]]
 then
@@ -22,10 +21,12 @@ PYTHONPATH=$PYTHONPATH:. python utils/preprocess_mad.py \
 --sampling_fps ${sampling_fps} \
 --sampling_mode ${sampling_mode} \
 --generated_feats_save_folder clip_features_SM${sampling_mode}_FPS${sampling_fps}_CL${clip_length_in_seconds}_L2${l2_normalize}_exts${use_exact_ts}/ \
---anno_save_path annotations/MAD_${split}_SM${sampling_mode}_FPS${sampling_fps}_CL${clip_length_in_seconds}_L2${l2_normalize}_exts${use_exact_ts}.json \
+--anno_save_path annotations/MAD_${split}_SM${sampling_mode}_FPS${sampling_fps}_CL${clip_length_in_seconds}_exts_balanced.json \
 --dataset_fps ${dataset_fps} \
 --no_save \
 --use_exact_ts \
+--split ${split} \
+#--no_modify_window
 
 #set if split=train
 #--no_modify_window

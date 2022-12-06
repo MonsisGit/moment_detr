@@ -67,10 +67,14 @@ class Transformer(nn.Module):
 
         tgt = torch.zeros_like(query_embed)
         memory = self.encoder(src, src_key_padding_mask=mask, pos=pos_embed)  # (L, batch_size, d)
-        #TODO remove cls token from encoder output
-        #memory = memory[1:, ...]
-        hs = self.decoder(tgt, memory, memory_key_padding_mask=mask,
-                          pos=pos_embed, query_pos=query_embed)  # (#layers, #queries, batch_size, d)
+
+        #remove cls token from encoder output
+        #decoder_memory = memory[1:]
+        #pos_embed = pos_embed[1:]
+        #mask = mask[:,1:]
+
+        hs = self.decoder(tgt, memory[1:], memory_key_padding_mask=mask[:,1:],
+                          pos=pos_embed[1:], query_pos=query_embed)  # (#layers, #queries, batch_size, d)
         hs = hs.transpose(1, 2)  # (#layers, batch_size, #qeries, d)
         # memory = memory.permute(1, 2, 0)  # (batch_size, d, L)
         memory = memory.transpose(0, 1)  # (batch_size, L, d)

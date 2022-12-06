@@ -276,6 +276,7 @@ class StartEndDataset(Dataset):
         if not self.is_val:
             gt_moment = self._get_gt_moment(meta)
             window, is_foreground = self._sample_window(gt_moment, meta)
+            duration = self.clip_length_in_seconds
             if is_foreground:
                 start_moment, stop_moment = self._calc_new_moment(window, gt_moment, meta)
             else:
@@ -285,7 +286,8 @@ class StartEndDataset(Dataset):
         else:
             window = [max(meta['window'][0], 0), min(meta['window'][1], self.video_feats[meta['vid']].shape[0])]
             start_moment, stop_moment = meta["relevant_windows"][0]
-            is_foreground = True
+            is_foreground = meta['is_foreground']
+            duration = meta['duration']
 
         _video_feats = self.video_feats[meta['vid']][window[0]:window[1]]
         # TODO this doesnt seem to work
@@ -297,7 +299,7 @@ class StartEndDataset(Dataset):
             'vid': meta['vid'],
             'relevant_windows': [[start_moment, stop_moment]],
             'query': meta['query'],
-            'duration': self.clip_length_in_seconds,
+            'duration': duration,
             'foreground': is_foreground
         }
         return _video_feats, meta
@@ -356,7 +358,9 @@ class StartEndDataset(Dataset):
         if idx_larger_window == 0:
             neg_start_window = max(int(0.5 * random.random() * sample_windows[idx_larger_window]), 0)
         else:
-            neg_start_window = max(int(sample_windows[idx_larger_window] * (1 + random.random())), 0)
+            neg_start_window = max(int(
+                sample_windows[idx_larger_window] * random.random() + sample_windows[0] + self.clip_length_in_frames),
+                0)
         neg_stop_window = neg_start_window + self.clip_length_in_frames
 
         if not neg_stop_window <= meta['duration'] * self.dataset_fps:
