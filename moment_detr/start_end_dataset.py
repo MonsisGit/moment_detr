@@ -349,7 +349,7 @@ class StartEndDataset(Dataset):
             is_foreground = True
             return [start_window, stop_window], is_foreground
 
-    def _sample_neg_window(self, start_window, stop_window, meta):
+    def _sample_neg_window(self, start_window, stop_window, meta, recursion_counter=0):
 
         sample_windows = [start_window, int(np.floor(meta['duration'] * self.dataset_fps)) - stop_window]
         idx_larger_window = np.argmax(sample_windows)
@@ -363,10 +363,12 @@ class StartEndDataset(Dataset):
             neg_stop_window = int(np.floor(meta['duration'] * self.dataset_fps))
             neg_start_window = neg_stop_window - self.clip_length_in_frames
 
+        if recursion_counter > 5:
+            logger.info(f'Maximum Recursion depth exceeded: {recursion_counter}')
+            return None
         if start_window <= neg_start_window <= stop_window or start_window <= neg_stop_window <= stop_window:
-            return self._sample_neg_window(start_window, stop_window, meta)
-
-        #TODO add base condition for recursion (COUNTER)
+            recursion_counter += 1
+            return self._sample_neg_window(start_window, stop_window, meta, recursion_counter)
 
         return neg_start_window, neg_stop_window
 

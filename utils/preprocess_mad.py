@@ -107,7 +107,8 @@ class MADdataset():
                     }
 
                     if not self.no_modify_window:
-                        video_features, moment, window = self._get_video_features(temp_dict, l2_normalize)
+                        video_features, moment, window, is_foreground = self._get_video_features(temp_dict,
+                                                                                                 l2_normalize)
                         duration = self.clip_length_in_seconds
                     else:
                         moment = anno['ext_timestamps']
@@ -122,8 +123,15 @@ class MADdataset():
                     }
                     if not self.no_modify_window:
                         dump_dict['window'] = window
+                        dump_dict['is_foreground'] = is_foreground
 
                     self.old_annos.append(temp_dict)
+                    moment_length = anno['ext_timestamps'][1] - anno['ext_timestamps'][0]
+                    if is_foreground and not self.no_modify_window and moment_length > 10:
+                        multiplier = int(0.1 * moment_length * moment_length)
+                        for i in range(multiplier):
+                            self.annos.append(dump_dict)
+
                     self.annos.append(dump_dict)
                     if not self.no_save:
                         np.savez(f'{self.root}{self.generated_feats_save_path}{k}.npz', features=video_features)
@@ -195,8 +203,15 @@ class MADdataset():
         assert 0 <= start_moment <= self.clip_length_in_seconds, f'start moment ({start_moment}) outside clip'
         assert 0 <= stop_moment <= self.clip_length_in_seconds, f'stop moment ({stop_moment}) outside clip'
 
+        if random.random() < 0.5:
+            neg_start_window, neg_stop_window = self._sample_neg_window(start_window, stop_window, anno)
+            is_foreground = False
+            return None, [0, 0], [neg_start_window, neg_stop_window], is_foreground
+        else:
+            is_foreground = False
+
         if self.no_save:
-            return None, [start_moment, stop_moment], [start_window, stop_window]
+            return None, [start_moment, stop_moment], [start_window, stop_window], is_foreground
 
         feats = self.video_feats[anno['movie']][start_window:stop_window]
         assert feats.shape[0] == self.clip_length_in_frames
@@ -205,7 +220,7 @@ class MADdataset():
             feats = self._l2_normalize_np_array(feats)
         if self.sampling_mode != "None":
             feats = self._sampling(feats)
-        return feats, [start_moment, stop_moment],[start_window, stop_window]
+        return feats, [start_moment, stop_moment], [start_window, stop_window]
 
     def _sampling(self, feats):
         if self.sampling_mode == 'fixed':
@@ -222,6 +237,26 @@ class MADdataset():
     def _l2_normalize_np_array(self, feats, eps=1e-5):
         """np_array: np.ndarray, (*, D), where the last dim will be normalized"""
         return feats / (np.linalg.norm(feats, axis=-1, keepdims=True) + eps)
+
+    def _sample_neg_window(self, start_window, stop_window, meta):
+
+        sample_windows = [start_window, int(np.floor(meta['movie_duration'] * self.dataset_fps)) - stop_window]
+        idx_larger_window = np.argmax(sample_windows)
+        if idx_larger_window == 0:
+            neg_start_window = max(int(0.5 * random.random() * sample_windows[idx_larger_window]), 0)
+        else:
+            neg_start_window = max(int(
+                sample_windows[idx_larger_window] * random.random() + sample_windows[0] + self.clip_length_in_frames),
+                0)
+        neg_stop_window = neg_start_window + self.clip_length_in_frames
+
+        if not neg_stop_window <= meta['movie_duration'] * self.dataset_fps:
+            neg_stop_window = int(np.floor(meta['movie_duration'] * self.dataset_fps))
+            neg_start_window = neg_stop_window - self.clip_length_in_frames
+
+        if start_window <= neg_start_window <= stop_window or start_window <= neg_stop_window <= stop_window:
+            return self._sample_neg_window(start_window, stop_window, meta)
+        return neg_start_window, neg_stop_window
 
 
 if __name__ == "__main__":
