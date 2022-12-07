@@ -73,7 +73,7 @@ def compute_mr_ap(submission, ground_truth, iou_thds=np.linspace(0.5, 0.95, 10),
     return iou_thd2ap
 
 
-def compute_mr_rk(submission, ground_truth, iou_thds=[0.1, 0.3, 0.5], top_ks=[1, 5, 10], is_nms=False):
+def compute_mr_rk(submission, ground_truth, iou_thds=[0.1, 0.3, 0.5], top_ks=[1, 2, 5, 10], is_nms=False):
     """If a predicted segment has IoU >= iou_thd with one of the 1st GT segment, we define it positive"""
     iou_thds = [float(f"{e:.2f}") for e in iou_thds]
     pred_qid2window = dict()
@@ -151,8 +151,12 @@ def get_data_by_range(submission, ground_truth, len_range):
         ground_truth:
         len_range: [min_l (int), max_l (int)]. the range is (min_l, max_l], i.e., min_l < l <= max_l
     """
+    is_foreground_idx = [idx for idx, g in enumerate(ground_truth) if g['is_foreground']]
+    ground_truth = [g for idx, g in enumerate(ground_truth) if idx in is_foreground_idx]
+    submission = [g for idx, g in enumerate(submission) if idx in is_foreground_idx]
+
     min_l, max_l = len_range
-    if min_l == 0 and max_l == 150:  # min and max l in dataset
+    if min_l == 0 and max_l == 200:  # min and max l in dataset
         return submission, ground_truth
 
     # only keep ground truth with windows in the specified length range
@@ -180,7 +184,7 @@ def get_data_by_range(submission, ground_truth, len_range):
 
 
 def eval_moment_retrieval(submission, ground_truth, verbose=True, is_nms=False):
-    length_ranges = [[0, 10], [10, 20], [20, 30], [0, 100], ]  #
+    length_ranges = [[0, 10], [10, 20], [20, 30], [0, 200], ]  #
     range_names = ["short", "middle", "long", "full"]
     range_names = [f'{d}_{length_ranges[idx][0]}_{length_ranges[idx][1]}' if d != 'full' else 'full' for idx, d in
                    enumerate(range_names)]
@@ -193,8 +197,6 @@ def eval_moment_retrieval(submission, ground_truth, verbose=True, is_nms=False):
         if len(_submission) != 0:
             print(f"{name}: {l_range}, {len(_ground_truth)}/{len(ground_truth)}="
                   f"{100 * len(_ground_truth) / len(ground_truth):.2f}% examples.")
-
-
 
             iou_thd2average_precision = compute_mr_ap(_submission, _ground_truth, num_workers=8, chunksize=50)
             # iou_thd2recall_at_k = compute_mr_r1(_submission, _ground_truth)
@@ -229,28 +231,27 @@ def eval_moment_retrieval(submission, ground_truth, verbose=True, is_nms=False):
 
             ret_metrics[name] = {"MR-mAP": placeholder_scores_mAP, "MR-RK": placeholder_scores_mr}
 
-    ret_metrics['CLS-Acc'] = round(cls_acc,2)
-    ret_metrics['CLS-Recall'] = round(cls_recall,2)
-    ret_metrics['CLS-Precision'] = round(cls_precision,2)
+    ret_metrics['CLS'] = {'accuracy': round(cls_acc, 2),
+                          'recall': round(cls_recall, 2),
+                          'precision': round(cls_precision, 2)}
     return ret_metrics
 
 
 def compute_cls_acc(_submission, _ground_truth):
     is_foreground = torch.tensor([int(gt['is_foreground']) for gt in _ground_truth])
     pred_cls = [s['pred_cls'] for s in _submission]
-    pred_cls = F.softmax(torch.tensor(pred_cls),dim=1)
-    pred_cls = torch.argmax(pred_cls, dim=1)
+    pred_cls = F.softmax(torch.tensor(pred_cls), dim=0)
+    pred_cls = (pred_cls > 0.5).squeeze()
     cls_acc = (torch.sum(pred_cls == is_foreground) / is_foreground.shape[0]).float()
 
     predicted_classes = pred_cls == 1
-    target_classes = is_foreground
-    target_true = torch.sum(target_classes == 1).float()
+    target_true = torch.sum(is_foreground == 1).float()
     predicted_true = torch.sum(predicted_classes).float()
     correct_true = torch.sum(
-        (predicted_classes == target_classes).type(torch.int64) * (predicted_classes == 1).type(torch.int64)).float()
+        (predicted_classes == is_foreground).type(torch.int64) * (predicted_classes == 1).type(torch.int64)).float()
 
-    recall = correct_true / target_true
-    precision = correct_true / predicted_true
+    recall = torch.nan_to_num(correct_true / target_true)
+    precision = torch.nan_to_num(correct_true / predicted_true)
 
     return float(cls_acc), float(recall), float(precision)
 
@@ -408,12 +409,13 @@ def eval_submission(submission, ground_truth, verbose=True, match_number=False, 
             }
         else:
             moment_ret_scores_brief = {
-                "CLS-Acc": moment_ret_scores["CLS-Acc"],
-                "CLS-Recall": moment_ret_scores["CLS-Recall"],
-                "CLS-Precision": moment_ret_scores["CLS-Precision"],
+                "CLS-Acc": moment_ret_scores['CLS']["accuracy"],
+                "CLS-Recall": moment_ret_scores['CLS']["recall"],
+                "CLS-Precision": moment_ret_scores['CLS']["precision"],
                 "MR-mAP": moment_ret_scores["full"]["MR-mAP"]["average"],
 
                 "MR-R1@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@1"],
+                "MR-R2@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@2"],
                 "MR-R5@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@5"],
                 "MR-R10@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@10"],
                 "(short) MR-R1@0.5": moment_ret_scores["short_0_10"]["MR-RK"]["0.5@1"],

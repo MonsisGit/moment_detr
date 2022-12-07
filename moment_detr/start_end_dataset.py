@@ -290,7 +290,7 @@ class StartEndDataset(Dataset):
             duration = meta['duration']
 
         _video_feats = self.video_feats[meta['vid']][window[0]:window[1]]
-        # TODO this doesnt seem to work
+        # TODO this doesnt seem to work in training
         if self.sampling_fps != self.dataset_fps and False:
             _video_feats = _video_feats[::int(self.dataset_fps / self.sampling_fps)]
 

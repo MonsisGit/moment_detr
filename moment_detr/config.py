@@ -156,7 +156,7 @@ class BaseOptions(object):
         parser.add_argument("--lang_feat_path", type=str, default="CLIP_L14_language_tokens_features.h5")
         parser.add_argument("--scheduler", type=str, default="step_lr", choices=['step_lr', 'cosnl', 'reduce_plateau'])
         parser.add_argument("--use_warmup", action="store_true",
-                            help="use warump for 3 epochs")
+                            help="use warmup for 3 epochs")
         parser.add_argument("--dataset_fps", type=float, default=5,
                             help="FPS sampling rate of the used dataset (MAD=5)")
         parser.add_argument("--use_exact_ts", action="store_true",

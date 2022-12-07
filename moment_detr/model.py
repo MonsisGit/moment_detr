@@ -7,6 +7,7 @@ import copy
 import torch
 import torch.nn.functional as F
 from torch import nn
+from torchvision.ops import sigmoid_focal_loss
 
 from moment_detr.span_utils import generalized_temporal_iou, span_cxw_to_xx
 
@@ -52,7 +53,7 @@ class MomentDETR(nn.Module):
         self.max_v_l = max_v_l
         span_pred_dim = 2 if span_loss_type == "l1" else max_v_l * 2
         self.span_embed = MLP(hidden_dim, hidden_dim, span_pred_dim, 3)
-        self.cls_embed = MLP(hidden_dim, hidden_dim, 2, 3)
+        self.cls_embed = MLP(hidden_dim, hidden_dim, 1, 3)
         self.class_embed = nn.Linear(hidden_dim, 2)  # 0: background, 1: foreground
         self.use_txt_pos = use_txt_pos
         self.n_input_proj = n_input_proj
@@ -127,7 +128,7 @@ class MomentDETR(nn.Module):
 
         pos = torch.cat([pos_vid, pos_txt], dim=1)
         # (#layers, bsz, #queries, d), (bsz, L_vid+L_txt, d)
-        #TODO remove cls from decoder part
+        # TODO remove cls from decoder part
         hs, memory = self.transformer(src, ~mask, self.query_embed.weight, pos)
         outputs_class = self.class_embed(hs)  # (#layers, batch_size, #queries, #classes)
         outputs_coord = self.span_embed(hs)  # (#layers, bsz, #queries, 2 or max_v_l * 2)
@@ -248,12 +249,13 @@ class SetCriterion(nn.Module):
         """Classification loss (NLL)
         targets dicts must contain the key "labels" containing a tensor of dim [nb_target_boxes]
         """
-        #filter all background datapoints
-        is_foreground_idx = torch.where(targets['cls_label']==True)[0]
+        # filter all background datapoints
+        is_foreground_idx = torch.where(targets['cls_label'] == True)[0]
 
         assert 'pred_logits' in outputs
-        src_logits = outputs['pred_logits'][is_foreground_idx]         # idx is a tuple of two 1D tensors (batch_idx, src_idx), of the same length == #objects in batch
-        indices = [i for idx,i in enumerate(indices) if idx in is_foreground_idx]
+        # src_logits = outputs['pred_logits'][is_foreground_idx]         # idx is a tuple of two 1D tensors (batch_idx, src_idx), of the same length == #objects in batch
+        src_logits = outputs['pred_logits']
+        # indices = [i for idx,i in enumerate(indices) if idx in is_foreground_idx]
         # (batch_size, #queries, #classes=2)
 
         idx = self._get_src_permutation_idx(indices)
@@ -275,10 +277,13 @@ class SetCriterion(nn.Module):
         """
 
         cls_logits = outputs['pred_cls'].squeeze()
-        cls_targets = torch.tensor([[1,0] if is_foreground else [0,1] for is_foreground in targets['cls_label']]).float().to(cls_logits.device)
+        # cls_targets = torch.tensor(
+        #    [[1, 0] if is_foreground else [0, 1] for is_foreground in targets['cls_label']]).float().to(
+        #    cls_logits.device)
 
-        loss_ce = F.cross_entropy(cls_logits, cls_targets, reduction="none")
-        losses = {'loss_cls': loss_ce.mean()}
+        loss_focal = sigmoid_focal_loss(cls_logits, targets['cls_label'].float(), alpha=0.25, gamma=2)
+        # loss_ce = F.cross_entropy(cls_logits, targets['cls_label'], reduction="none")
+        losses = {'loss_cls': loss_focal.mean()}
 
         return losses
 
@@ -396,7 +401,7 @@ class SetCriterion(nn.Module):
             for i, aux_outputs in enumerate(outputs['aux_outputs']):
                 indices = self.matcher(aux_outputs, targets)
                 for loss in self.losses:
-                    if loss in ['saliency','cls']:  # skip as it is only in the top layer
+                    if loss in ['saliency', 'cls']:  # skip as it is only in the top layer
                         continue
                     kwargs = {}
                     l_dict = self.get_loss(loss, aux_outputs, targets, indices, **kwargs)
@@ -492,7 +497,7 @@ def build_model(args):
             aux_weight_dict.update({k + f'_{i}': v for k, v in weight_dict.items() if k != "loss_saliency"})
         weight_dict.update(aux_weight_dict)
 
-    losses = ['spans', 'labels', 'saliency','cls']
+    losses = ['spans', 'labels', 'saliency', 'cls']
     if args.contrastive_align_loss:
         losses += ["contrastive_align"]
     # TODO anschauen

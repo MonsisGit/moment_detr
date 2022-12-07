@@ -19,7 +19,7 @@ eval_split_name=val
 v_feat_dim=768
 t_feat_dim=768
 bsz=256
-cuda_visible_devices=1
+cuda_visible_devices=2
 data_ratio=1
 num_workers=8
 n_epoch=100
@@ -39,13 +39,13 @@ num_queries=10
 lw_saliency=4
 set_cost_class=4   #"Class coefficient in the matching cost"
 label_loss_coef=4
-lw_cls=1
+lw_cls=4
 
 ##set for results tracking!
 window_length=30
 sampling_mode=online
 sampling_fps=5
-eval_results_dir=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_lrd${lr_drop}_dr${data_ratio}_wl${window_length}_fps${sampling_fps}_lws${lw_saliency}_lloss${label_loss_coef}_${sheduler}_negatives_balanced
+eval_results_dir=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_dr${data_ratio}_wl${window_length}_fps${sampling_fps}_lws${lw_saliency}_lloss${label_loss_coef}_closs${lw_cls}
 
 #resume
 resume=${root}momentDETR_results/${eval_results_dir}/model_best.ckpt
