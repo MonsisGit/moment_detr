@@ -248,10 +248,14 @@ class SetCriterion(nn.Module):
         """Classification loss (NLL)
         targets dicts must contain the key "labels" containing a tensor of dim [nb_target_boxes]
         """
-        # TODO add foreground and background classifier.  use all non-matched as background.
+        #filter all background datapoints
+        is_foreground_idx = torch.where(targets['cls_label']==True)[0]
+
         assert 'pred_logits' in outputs
-        src_logits = outputs['pred_logits']  # (batch_size, #queries, #classes=2)
-        # idx is a tuple of two 1D tensors (batch_idx, src_idx), of the same length == #objects in batch
+        src_logits = outputs['pred_logits'][is_foreground_idx]         # idx is a tuple of two 1D tensors (batch_idx, src_idx), of the same length == #objects in batch
+        indices = [i for idx,i in enumerate(indices) if idx in is_foreground_idx]
+        # (batch_size, #queries, #classes=2)
+
         idx = self._get_src_permutation_idx(indices)
         target_classes = torch.full(src_logits.shape[:2], self.background_label,
                                     dtype=torch.int64, device=src_logits.device)  # (batch_size, #queries)
@@ -271,8 +275,7 @@ class SetCriterion(nn.Module):
         """
 
         cls_logits = outputs['pred_cls'].squeeze()
-        cls_targets = targets['cls_label'].type(torch.int64)
-        cls_targets = F.one_hot(cls_targets, num_classes=2).type(torch.float)
+        cls_targets = torch.tensor([[1,0] if is_foreground else [0,1] for is_foreground in targets['cls_label']]).float().to(cls_logits.device)
 
         loss_ce = F.cross_entropy(cls_logits, cls_targets, reduction="none")
         losses = {'loss_cls': loss_ce.mean()}
