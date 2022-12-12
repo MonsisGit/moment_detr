@@ -1,5 +1,7 @@
 import logging
 import os
+
+import numpy as np
 from tqdm import tqdm
 from collections import defaultdict
 from utils.basic_utils import AverageMeter
@@ -10,6 +12,7 @@ from moment_detr.inference import setup_model
 from moment_detr.start_end_dataset import collate_fn_replace_corrupted, prepare_batch_inputs
 from moment_detr.start_end_dataset_long_nlq import StartEndDatasetLong
 from moment_detr.span_utils import span_cxw_to_xx
+from standalone_eval.utils import compute_temporal_iou_batch_paired
 from utils.basic_utils import load_jsonl
 
 import torch
@@ -36,10 +39,10 @@ def get_data(opt):
     return lang_feats, video_feats, annos
 
 
-def prepare_inputs(qid, anno, window, lang_feats, video_feats, device,opt):
-
+def prepare_inputs(qid, anno, window, lang_feats, video_feats, device, opt):
     model_inputs = dict()
-    model_inputs['src_txt'] = torch.tensor(lang_feats[qid]).view(1, -1, opt.q_feat_dim).to(device)
+    model_inputs['src_txt'] = torch.tensor(np.array(lang_feats[qid])).view(1, -1, opt.t_feat_dim).to(device).type(
+        torch.float32)
 
     vid = torch.tensor(video_feats[anno['movie']][window[0]:window[1]])
     ctx_l = len(vid)
@@ -48,10 +51,19 @@ def prepare_inputs(qid, anno, window, lang_feats, video_feats, device,opt):
     tef = torch.stack([tef_st, tef_ed], dim=1)  # (Lv, 2)
     model_inputs['src_vid'] = torch.cat([vid, tef], dim=1).view(1, -1, opt.v_feat_dim).to(device)
 
-    model_inputs['src_txt_mask'] = torch.ones_like(model_inputs['src_txt'][...,0]).to(device)
-    model_inputs['src_vid_mask'] = torch.ones_like(model_inputs['src_vid'][...,0]).to(device)
+    model_inputs['src_txt_mask'] = torch.ones_like(model_inputs['src_txt'][..., 0]).to(device)
+    model_inputs['src_vid_mask'] = torch.ones_like(model_inputs['src_vid'][..., 0]).to(device)
 
     return model_inputs
+
+
+def moment_inside_window(anno, window):
+    window = np.divide(window, 5)
+    moment = anno['ext_timestamps']
+    if window[0] < moment[0] < window[1] or window[0] < moment[1] < window[1]:
+        return True
+    else:
+        return False
 
 
 def start_inference_long_nlq():
@@ -72,66 +84,25 @@ def start_inference_long_nlq():
 
         for qid in tqdm(annos.keys()):
             len_movie = video_feats[annos[qid]['movie']].shape[0]
-            for window in range(0, len_movie, window_length):
+            pred_spans, pred_cls, foreground = [], [], []
 
+            for idx, window in enumerate(range(0, len_movie, window_length // 2)):
+                sample_window = [window, min(len_movie, window + window_length)]
                 model_inputs = prepare_inputs(qid=qid,
                                               anno=annos[qid],
-                                              window=[window, window + window_length],
+                                              window=sample_window,
                                               lang_feats=lang_feats,
                                               video_feats=video_feats,
                                               device=opt.device,
                                               opt=opt)
+
+                if moment_inside_window(anno=annos[qid], window=sample_window):
+                    foreground.append(idx)
+
                 outputs = model(**model_inputs)
 
-                prob = F.softmax(outputs["pred_logits"], -1)  # (batch_size, #queries, #classes=2)
-                if opt.span_loss_type == "l1":
-                    scores = prob[..., 0]  # * (batch_size, #queries)  foreground label is 0, we directly take it
-                    pred_spans = outputs["pred_spans"]  # (bsz, #queries, 2)
-                    _saliency_scores = outputs["saliency_scores"].half()  # (bsz, L)
-                    saliency_scores = []
-                    valid_vid_lengths = model_inputs["src_vid_mask"].sum(1).cpu().tolist()
-                    for j in range(len(valid_vid_lengths)):
-                        saliency_scores.append(_saliency_scores[j, :int(valid_vid_lengths[j])].tolist())
-                else:
-                    bsz, n_queries = outputs["pred_spans"].shape[:2]  # # (bsz, #queries, max_v_l *2)
-                    pred_spans_logits = outputs["pred_spans"].view(bsz, n_queries, 2, opt.max_v_l)
-                    # TODO use more advanced decoding method with st_ed product
-                    pred_span_scores, pred_spans = F.softmax(pred_spans_logits, dim=-1).max(
-                        -1)  # 2 * (bsz, #queries, 2)
-                    scores = torch.prod(pred_span_scores, 2)  # (bsz, #queries)
-                    pred_spans[:, 1] += 1
-                    pred_spans *= opt.clip_length
-
-                # compose predictions
-                for idx, (meta, spans, score) in enumerate(zip(query_meta, pred_spans.cpu(), scores.cpu())):
-                    if opt.span_loss_type == "l1":
-                        spans = span_cxw_to_xx(spans) * meta["duration"]
-                    # # (#queries, 3), [st(float), ed(float), score(float)]
-                    cur_ranked_preds = torch.cat([spans, score[:, None]], dim=1).tolist()
-                    if not opt.no_sort_results:
-                        cur_ranked_preds = sorted(cur_ranked_preds, key=lambda x: x[2], reverse=True)
-                    cur_ranked_preds = [[float(f"{e:.4f}") for e in row] for row in cur_ranked_preds]
-
-                    cur_query_pred = dict(
-                        qid=meta['qid'],
-                        query=meta["query"],
-                        vid=meta['vid'],
-                        pred_relevant_windows=cur_ranked_preds,
-                        pred_saliency_scores=saliency_scores[idx],
-                        pred_cls=outputs['pred_cls'].tolist()[idx][0]
-                    )
-                    mr_res.append(cur_query_pred)
-
-                if criterion:
-                    loss_dict = criterion(outputs, targets)
-                    weight_dict = criterion.weight_dict
-                    losses = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
-                    loss_dict["loss_overall"] = float(losses)  # for logging only
-                    for k, v in loss_dict.items():
-                        loss_meters[k].update(float(v) * weight_dict[k] if k in weight_dict else float(v))
-
-                if opt.debug:
-                    break
+                pred_spans.append((span_cxw_to_xx(outputs["pred_spans"]) * annos[qid]['movie_duration'])[0, ...])
+                pred_cls.append(outputs['pred_cls'][0][0][0])
 
 
 if __name__ == '__main__':
