@@ -84,6 +84,7 @@ class StartEndDatasetLong(Dataset):
 
     def load_data(self):
         datalist = load_jsonl(self.data_path)
+        datalist = datalist[::2]
         if self.data_ratio != 1:
             n_examples = int(len(datalist) * self.data_ratio)
             if n_examples == 0:
