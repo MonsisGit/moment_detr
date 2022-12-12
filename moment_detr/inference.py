@@ -49,7 +49,6 @@ def eval_epoch_post_processing(submission, opt, gt_data, save_submission_filenam
     # IOU_THDS = (0.5, 0.7)
     logger.info("Saving/Evaluating before nms results")
     submission_path = os.path.join(opt.results_dir, save_submission_filename)
-    #pathlib.Path(os.path.join(*submission_path.split('/')[:-1])).mkdir(parents=True, exist_ok=True)
     save_jsonl(submission, submission_path)
 
     if opt.eval_split_name in ["val", "test"]:  # since test_public has no GT

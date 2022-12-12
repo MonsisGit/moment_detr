@@ -154,7 +154,8 @@ class BaseOptions(object):
         parser.add_argument("--sampling_mode", type=str, default="offline",
                             help="use offline or online sampling", choices=['online'])
         parser.add_argument("--lang_feat_path", type=str, default="CLIP_L14_language_tokens_features.h5")
-        parser.add_argument("--scheduler", type=str, default="step_lr", choices=['step_lr', 'cosnl', 'reduce_plateau'])
+        parser.add_argument("--scheduler", type=str, default="reduce_plateau",
+                            choices=['step_lr', 'cosnl', 'reduce_plateau'])
         parser.add_argument("--use_warmup", action="store_true",
                             help="use warmup for 3 epochs")
         parser.add_argument("--dataset_fps", type=float, default=5,
@@ -196,7 +197,7 @@ class BaseOptions(object):
                     setattr(opt, arg, saved_options[arg])
                     # TODO fix
             # opt.no_core_driver = True
-            #if opt.eval_results_dir is not None:
+            # if opt.eval_results_dir is not None:
             #    opt.results_dir = opt.eval_results_dir
         else:
             if opt.exp_id is None:
@@ -243,7 +244,7 @@ class TestOptions(BaseOptions):
         BaseOptions.initialize(self)
         # also need to specify --eval_split_name
         self.parser.add_argument("--eval_id", type=str, help="evaluation id", default='1')
-        #self.parser.add_argument("--eval_results_dir", type=str, default=None,
+        # self.parser.add_argument("--eval_results_dir", type=str, default=None,
         #                         help="dir to save results, if not set, fall back to training results_dir")
         self.parser.add_argument("--model_dir", type=str,
                                  help="dir contains the model file, will be converted to absolute path afterwards")

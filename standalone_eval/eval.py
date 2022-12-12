@@ -8,7 +8,7 @@ from standalone_eval.utils import compute_average_precision_detection, \
     compute_temporal_iou_batch_cross, compute_temporal_iou_batch_paired, load_jsonl, get_ap
 
 import torch
-import torch.nn.functional as F
+from torchmetrics.classification import BinaryRecall, BinaryAccuracy, BinaryPrecision
 
 
 def compute_average_precision_detection_wrapper(
@@ -155,6 +155,14 @@ def get_data_by_range(submission, ground_truth, len_range):
     ground_truth = [g for idx, g in enumerate(ground_truth) if idx in is_foreground_idx]
     submission = [g for idx, g in enumerate(submission) if idx in is_foreground_idx]
 
+    pred_qids = set([e["qid"] for e in submission])
+    gt_qids = set([e["qid"] for e in ground_truth])
+    shared_qids = pred_qids.intersection(gt_qids)
+
+    if len(gt_qids) != len(shared_qids) or len(pred_qids) != len(shared_qids):
+        submission = [e for e in submission if e["qid"] in shared_qids]
+        ground_truth = [e for e in ground_truth if e["qid"] in shared_qids]
+
     min_l, max_l = len_range
     if min_l == 0 and max_l == 200:  # min and max l in dataset
         return submission, ground_truth
@@ -237,23 +245,31 @@ def eval_moment_retrieval(submission, ground_truth, verbose=True, is_nms=False):
     return ret_metrics
 
 
-def compute_cls_acc(_submission, _ground_truth):
-    is_foreground = torch.tensor([int(gt['is_foreground']) for gt in _ground_truth])
-    pred_cls = [s['pred_cls'] for s in _submission]
-    pred_cls = F.softmax(torch.tensor(pred_cls), dim=0)
-    pred_cls = (pred_cls > 0.5).squeeze()
-    cls_acc = (torch.sum(pred_cls == is_foreground) / is_foreground.shape[0]).float()
+def sigmoid(x):
+    return 1.0 / (1.0 + np.exp(-x))
 
-    predicted_classes = pred_cls == 1
-    target_true = torch.sum(is_foreground == 1).float()
-    predicted_true = torch.sum(predicted_classes).float()
-    correct_true = torch.sum(
-        (predicted_classes == is_foreground).type(torch.int64) * (predicted_classes == 1).type(torch.int64)).float()
 
-    recall = torch.nan_to_num(correct_true / target_true)
-    precision = torch.nan_to_num(correct_true / predicted_true)
+def compute_cls_acc(_submission, _ground_truth,):
+    #is_foreground = np.array([int(gt['is_foreground']) for gt in _ground_truth])
+    #pred_cls = np.array([s['pred_cls'] for s in _submission]).squeeze()
+    #pred_cls = sigmoid(pred_cls)
+    #pred_cls = (pred_cls > 0.5)
+    #cls_acc = float(np.mean(pred_cls == is_foreground))
 
-    return float(cls_acc), float(recall), float(precision)
+    #target_true = np.sum(is_foreground)
+    #predicted_true = np.sum(pred_cls)
+    #correct_true = np.sum((pred_cls == is_foreground) * pred_cls)
+
+    #cls_recall = float(correct_true / target_true) if target_true != 0 else 0
+    #cls_precision = float(correct_true / predicted_true) if predicted_true != 0 else 0
+
+    binary_recall = BinaryRecall()
+    binary_precision = BinaryPrecision()
+    binary_accuracy = BinaryAccuracy()
+    preds = torch.tensor([s['pred_cls'] for s in _submission]).squeeze()
+    targets = torch.tensor([int(gt['is_foreground']) for gt in _ground_truth])
+
+    return float(binary_accuracy(preds, targets)),  float(binary_recall(preds, targets)), float(binary_precision(preds, targets))
 
 
 def compute_hl_hit1(qid2preds, qid2gt_scores_binary):
@@ -390,8 +406,9 @@ def eval_submission(submission, ground_truth, verbose=True, match_number=False, 
             f"use `match_number=False` if you wish to disable this check"
     else:  # only leave the items that exists in both submission and ground_truth
         shared_qids = pred_qids.intersection(gt_qids)
-        submission = [e for e in submission if e["qid"] in shared_qids]
-        ground_truth = [e for e in ground_truth if e["qid"] in shared_qids]
+        if len(gt_qids) != len(shared_qids) or len(pred_qids) != len(shared_qids):
+            submission = [e for e in submission if e["qid"] in shared_qids]
+            ground_truth = [e for e in ground_truth if e["qid"] in shared_qids]
 
     eval_metrics = {}
     eval_metrics_brief = OrderedDict()
