@@ -25,7 +25,8 @@ logging.basicConfig(format="%(asctime)s.%(msecs)03d:%(levelname)s:%(name)s - %(m
 
 class LongNlqDataset(Dataset):
     def __init__(self, opt, stride=0.5,
-                 window_length=150):
+                 window_length=150, test_file='MAD_test.json',
+                 video_fatures_path='CLIP_L14_frames_features_5fps.h5'):
         self.opt = opt
         data = self.get_data(opt)
         self.lang_feats = data[0]
@@ -34,17 +35,17 @@ class LongNlqDataset(Dataset):
         self.keys = list(data[2].keys())
         self.stride = stride
         self.window_length = window_length
+        self.lang_path = os.path.join(opt.t_feat_dir, opt.lang_feat_path)
+        self.video_path = os.path.join(opt.v_feat_dirs[0], video_fatures_path)
+        self.anno_path = os.path.join(opt.t_feat_dir, 'annotations', test_file)
 
     def get_data(self, opt):
-        lang_path = os.path.join(opt.t_feat_dir, opt.lang_feat_path)
-        logger.info(f'LOADING: {lang_path}')
-        lang_feats = h5py.File(lang_path, 'r')
-        video_path = os.path.join(opt.v_feat_dirs[0], 'CLIP_L14_frames_features_5fps.h5')
-        logger.info(f'LOADING: {video_path}')
-        video_feats = h5py.File(video_path, 'r')
-        anno_path = os.path.join(opt.t_feat_dir, 'annotations/MAD_test.json')
-        logger.info(f'LOADING: {anno_path}')
-        annos = load_jsonl(anno_path)[0]
+        logger.info(f'LOADING: {self.lang_path}')
+        lang_feats = h5py.File(self.lang_path, 'r')
+        logger.info(f'LOADING: {self.video_path}')
+        video_feats = h5py.File(self.video_path, 'r')
+        logger.info(f'LOADING: {self.anno_path}')
+        annos = load_jsonl(self.anno_path)[0]
         return [lang_feats, video_feats, annos]
 
     def __len__(self):
@@ -55,31 +56,44 @@ class LongNlqDataset(Dataset):
         anno = self.annos[qid]
         len_movie = self.video_feats[self.annos[qid]['movie']].shape[0]
         foregrounds, model_inputs = [], []
-        for start_window in range(0, len_movie, self.window_length // 2):
-            window = [start_window, min(start_window + self.window_length, len_movie)]
-            model_input = self.prepare_inputs(qid=qid,
-                                              anno=anno,
-                                              window=window)
-            model_inputs.append(model_input)
-            is_foreground = self.moment_inside_window(anno, window)
-            foregrounds.append({'is_foreground': is_foreground})
+        # for start_window in range(0, len_movie, self.window_length // 2):
+        # window = [start_window, min(start_window + self.window_length, len_movie)]
+
+        model_input = self.prepare_inputs(qid=qid,
+                                          anno=anno)
+        model_input = self.slice_into_windows(qid=qid,
+                                              model_input=model_input)
+
+        is_foreground = self.moment_inside_window(anno, window)
+        foregrounds.append({'is_foreground': is_foreground})
+
         return model_inputs, foregrounds
 
-    def prepare_inputs(self, qid, anno, window):
-        model_inputs = dict()
-        model_inputs['src_txt'] = torch.tensor(np.array(self.lang_feats[qid])).view(1, -1, self.opt.t_feat_dim).to(
-            self.opt.device).type(
-            torch.float32)
+    def slice_into_windows(self, qid, model_input):
 
-        vid = torch.tensor(self.video_feats[anno['movie']][window[0]:window[1]])
-        ctx_l = len(vid)
+        return model_input
+
+    def prepare_inputs(self, qid, anno):
+        model_inputs = dict()
+        model_inputs[qid] = {
+            'src_txt': torch.tensor(np.array(self.lang_feats[qid])).view(1, -1, self.opt.t_feat_dim).to(
+                self.opt.device).type(
+                torch.float32)}
+
+        model_inputs[qid] = {'src_vid': torch.tensor(self.video_feats[anno['movie']])}
+
+        # model_inputs['src_txt_mask'] = torch.ones_like(model_inputs['src_txt'][..., 0]).to(self.opt.device)
+        # model_inputs['src_vid_mask'] = torch.ones_like(model_inputs['src_vid'][..., 0]).to(self.opt.device)
+
+        return model_inputs
+
+    def cat_tef(self, model_inputs):
+        ctx_l = len(model_inputs['src_vid'])
         tef_st = torch.arange(0, ctx_l, 1.0) / ctx_l
         tef_ed = tef_st + 1.0 / ctx_l
         tef = torch.stack([tef_st, tef_ed], dim=1)  # (Lv, 2)
-        model_inputs['src_vid'] = torch.cat([vid, tef], dim=1).view(1, -1, self.opt.v_feat_dim).to(self.opt.device)
-
-        model_inputs['src_txt_mask'] = torch.ones_like(model_inputs['src_txt'][..., 0]).to(self.opt.device)
-        model_inputs['src_vid_mask'] = torch.ones_like(model_inputs['src_vid'][..., 0]).to(self.opt.device)
+        model_inputs['src_vid'] = torch.cat([model_inputs['src_vid'], tef], dim=1).view(1, -1, self.opt.v_feat_dim).to(
+            self.opt.device)
 
         return model_inputs
 
