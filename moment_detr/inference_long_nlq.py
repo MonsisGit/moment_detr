@@ -7,6 +7,7 @@ from collections import defaultdict
 from utils.basic_utils import AverageMeter
 import h5py
 
+from moment_detr.span_utils import temporal_intersection_over_pred
 from moment_detr.config import TestOptions
 from moment_detr.inference import setup_model
 from moment_detr.span_utils import span_cxw_to_xx
@@ -28,6 +29,9 @@ class LongNlqDataset(Dataset):
                  window_length=150, test_file='MAD_test.json',
                  video_fatures_path='CLIP_L14_frames_features_5fps.h5'):
         self.opt = opt
+        self.lang_path = os.path.join(opt.t_feat_dir, opt.lang_feat_path)
+        self.video_path = os.path.join(opt.v_feat_dirs[0], video_fatures_path)
+        self.anno_path = os.path.join(opt.t_feat_dir, 'annotations', test_file)
         data = self.get_data(opt)
         self.lang_feats = data[0]
         self.video_feats = data[1]
@@ -35,9 +39,6 @@ class LongNlqDataset(Dataset):
         self.keys = list(data[2].keys())
         self.stride = stride
         self.window_length = window_length
-        self.lang_path = os.path.join(opt.t_feat_dir, opt.lang_feat_path)
-        self.video_path = os.path.join(opt.v_feat_dirs[0], video_fatures_path)
-        self.anno_path = os.path.join(opt.t_feat_dir, 'annotations', test_file)
 
     def get_data(self, opt):
         logger.info(f'LOADING: {self.lang_path}')
@@ -61,41 +62,63 @@ class LongNlqDataset(Dataset):
 
         model_input = self.prepare_inputs(qid=qid,
                                           anno=anno)
-        model_input = self.slice_into_windows(qid=qid,
-                                              model_input=model_input)
+        model_input = self.unfold_expand(qid=qid,
+                                         model_input=model_input)
+        target = self.get_foreground(qid=qid,
+                                         model_input=model_input,
+                                         anno=anno)
 
-        is_foreground = self.moment_inside_window(anno, window)
-        foregrounds.append({'is_foreground': is_foreground})
+        # is_foreground = self.moment_inside_window(anno, window)
+        # foregrounds.append({'is_foreground': is_foreground})
 
         return model_inputs, foregrounds
 
-    def slice_into_windows(self, qid, model_input):
+    def get_foreground(self, qid, model_input, anno):
+        target = {}
+        vid_shape = model_input[qid]['src_vid'].shape
+        idx_start = torch.arange(0, int(vid_shape[0] / 2 * vid_shape[1]), self.window_length // 2).view(-1, 1)
+        idx_end = (torch.arange(0, int(vid_shape[0] / 2 * vid_shape[1]),
+                                self.window_length // 2) + self.window_length).view(-1, 1)
+        window_idx = torch.cat([idx_start, idx_end], dim=1) / 5
+        moment = torch.tensor(anno['ext_timestamps']).reshape(-1, 2)
+        intersection = temporal_intersection_over_pred(moment, window_idx)
+        intersection_idx = torch.where(intersection > 0)[-1]
+        foreground = torch.zeros(vid_shape[0])
+        foreground[intersection_idx] = 1
+        target[qid] = dict(is_foreground=foreground)
+        return target
 
+    def unfold_expand(self, qid, model_input):
+        model_input[qid]['src_vid'] = model_input[qid]['src_vid'].unfold(0, self.window_length,
+                                                                         self.window_length // 2).reshape(-1,
+                                                                                                          self.window_length,
+                                                                                                          self.opt.v_feat_dim - 2)
+        model_input = self.cat_tef(qid=qid,
+                                   model_input=model_input)
+        model_input[qid]['src_txt'] = model_input[qid]['src_txt'].expand(model_input[qid]['src_vid'].shape[0],
+                                                                         *model_input[qid]['src_txt'].shape[1:])
+        model_input[qid]['src_vid_mask'] = torch.ones(model_input[qid]['src_vid'].shape[0:2])
+        model_input[qid]['src_txt_mask'] = torch.ones(model_input[qid]['src_txt'].shape[0:2])
         return model_input
 
     def prepare_inputs(self, qid, anno):
         model_inputs = dict()
-        model_inputs[qid] = {
-            'src_txt': torch.tensor(np.array(self.lang_feats[qid])).view(1, -1, self.opt.t_feat_dim).to(
-                self.opt.device).type(
-                torch.float32)}
 
-        model_inputs[qid] = {'src_vid': torch.tensor(self.video_feats[anno['movie']])}
-
-        # model_inputs['src_txt_mask'] = torch.ones_like(model_inputs['src_txt'][..., 0]).to(self.opt.device)
-        # model_inputs['src_vid_mask'] = torch.ones_like(model_inputs['src_vid'][..., 0]).to(self.opt.device)
-
+        model_inputs[qid] = {'src_vid': torch.tensor(np.array(self.video_feats[anno['movie']])),
+                             'src_txt': torch.tensor(np.array(self.lang_feats[qid])).view(1, -1,
+                                                                                          self.opt.t_feat_dim).type(
+                                 torch.float32)
+                             }
         return model_inputs
 
-    def cat_tef(self, model_inputs):
-        ctx_l = len(model_inputs['src_vid'])
-        tef_st = torch.arange(0, ctx_l, 1.0) / ctx_l
-        tef_ed = tef_st + 1.0 / ctx_l
+    def cat_tef(self, qid, model_input):
+        tef_st = torch.arange(0, self.window_length, 1.0) / self.window_length
+        tef_ed = tef_st + 1.0 / self.window_length
         tef = torch.stack([tef_st, tef_ed], dim=1)  # (Lv, 2)
-        model_inputs['src_vid'] = torch.cat([model_inputs['src_vid'], tef], dim=1).view(1, -1, self.opt.v_feat_dim).to(
-            self.opt.device)
+        tef = tef.expand(*model_input[qid]['src_vid'].shape[0:2], 2)
+        model_input[qid]['src_vid'] = torch.cat([model_input[qid]['src_vid'], tef], dim=2)
 
-        return model_inputs
+        return model_input
 
     def moment_inside_window(self, anno, window):
         window = np.divide(window, 5)
