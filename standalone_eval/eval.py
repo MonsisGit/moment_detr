@@ -272,6 +272,20 @@ def compute_cls_acc(_submission, _ground_truth,):
     return float(binary_accuracy(preds, targets)),  float(binary_recall(preds, targets)), float(binary_precision(preds, targets))
 
 
+def long_nlq_metrics(_submission, _ground_truth,qid, metrics):
+    binary_recall = BinaryRecall()
+    binary_precision = BinaryPrecision()
+    binary_accuracy = BinaryAccuracy()
+
+    preds = torch.cat([s['pred_cls'][:, 0] for s in _submission.values()], dim=0).cpu()
+    targets = torch.cat([gt['is_foreground'] for gt in _ground_truth], dim=0)
+
+    metrics[qid] = {'accuracy': float(binary_accuracy(preds, targets)),
+                    'recall': float(binary_recall(preds, targets)),
+                    'precision': float(binary_precision(preds, targets))
+                    }
+    return metrics
+
 def compute_hl_hit1(qid2preds, qid2gt_scores_binary):
     qid2max_scored_clip_idx = {k: np.argmax(v["pred_saliency_scores"]) for k, v in qid2preds.items()}
     hit_scores = np.zeros((len(qid2preds), 3))
