@@ -191,19 +191,23 @@ def get_data_by_range(submission, ground_truth, len_range):
     return submission_in_range, ground_truth_in_range
 
 
-def eval_moment_retrieval(submission, ground_truth, verbose=True, is_nms=False):
+def eval_moment_retrieval(submission, ground_truth, verbose=True, is_nms=False,
+                          is_long_nlq=False):
     length_ranges = [[0, 10], [10, 20], [20, 30], [0, 200], ]  #
     range_names = ["short", "middle", "long", "full"]
     range_names = [f'{d}_{length_ranges[idx][0]}_{length_ranges[idx][1]}' if d != 'full' else 'full' for idx, d in
                    enumerate(range_names)]
+
     cls_acc, cls_recall, cls_precision = compute_cls_acc(submission, ground_truth)
     ret_metrics = {}
     for l_range, name in zip(length_ranges, range_names):
         if verbose:
             start_time = time.time()
+        #TODO fix with long nlq
         _submission, _ground_truth = get_data_by_range(submission, ground_truth, l_range)
         if len(_submission) != 0:
-            print(f"{name}: {l_range}, {len(_ground_truth)}/{len(ground_truth)}="
+            if verbose:
+                print(f"{name}: {l_range}, {len(_ground_truth)}/{len(ground_truth)}="
                   f"{100 * len(_ground_truth) / len(ground_truth):.2f}% examples.")
 
             iou_thd2average_precision = compute_mr_ap(_submission, _ground_truth, num_workers=8, chunksize=50)
@@ -245,46 +249,30 @@ def eval_moment_retrieval(submission, ground_truth, verbose=True, is_nms=False):
     return ret_metrics
 
 
-def sigmoid(x):
-    return 1.0 / (1.0 + np.exp(-x))
-
-
-def compute_cls_acc(_submission, _ground_truth,):
-    #is_foreground = np.array([int(gt['is_foreground']) for gt in _ground_truth])
-    #pred_cls = np.array([s['pred_cls'] for s in _submission]).squeeze()
-    #pred_cls = sigmoid(pred_cls)
-    #pred_cls = (pred_cls > 0.5)
-    #cls_acc = float(np.mean(pred_cls == is_foreground))
-
-    #target_true = np.sum(is_foreground)
-    #predicted_true = np.sum(pred_cls)
-    #correct_true = np.sum((pred_cls == is_foreground) * pred_cls)
-
-    #cls_recall = float(correct_true / target_true) if target_true != 0 else 0
-    #cls_precision = float(correct_true / predicted_true) if predicted_true != 0 else 0
-
+def compute_cls_acc(_submission, _ground_truth, ):
     binary_recall = BinaryRecall()
     binary_precision = BinaryPrecision()
     binary_accuracy = BinaryAccuracy()
     preds = torch.tensor([s['pred_cls'] for s in _submission]).squeeze()
     targets = torch.tensor([int(gt['is_foreground']) for gt in _ground_truth])
 
-    return float(binary_accuracy(preds, targets)),  float(binary_recall(preds, targets)), float(binary_precision(preds, targets))
+    return float(binary_accuracy(preds, targets)), float(binary_recall(preds, targets)), float(
+        binary_precision(preds, targets))
 
 
-def long_nlq_metrics(_submission, _ground_truth,qid, metrics):
+def long_nlq_metrics(_submission, _ground_truth):
     binary_recall = BinaryRecall()
     binary_precision = BinaryPrecision()
     binary_accuracy = BinaryAccuracy()
 
-    preds = torch.cat([s['pred_cls'][:, 0] for s in _submission.values()], dim=0).cpu()
-    targets = torch.cat([gt['is_foreground'] for gt in _ground_truth], dim=0)
+    preds = _submission['pred_cls'][:,0].cpu()
+    targets = _ground_truth['is_foreground']
 
-    metrics[qid] = {'accuracy': float(binary_accuracy(preds, targets)),
-                    'recall': float(binary_recall(preds, targets)),
-                    'precision': float(binary_precision(preds, targets))
-                    }
-    return metrics
+    accuracy = float(binary_accuracy(preds, targets))
+    recall = float(binary_recall(preds, targets))
+    precision = float(binary_precision(preds, targets))
+    return accuracy, recall, precision
+
 
 def compute_hl_hit1(qid2preds, qid2gt_scores_binary):
     qid2max_scored_clip_idx = {k: np.argmax(v["pred_saliency_scores"]) for k, v in qid2preds.items()}

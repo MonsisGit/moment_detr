@@ -8,11 +8,12 @@ from moment_detr.config import TestOptions
 from moment_detr.inference import setup_model
 from moment_detr.span_utils import span_cxw_to_xx
 from moment_detr.long_nlq_dataset import LongNlqDataset, collate_fn_replace_corrupted
-from standalone_eval.eval import long_nlq_metrics
+from standalone_eval.eval import eval_submission
 
 import torch
 import torch.backends.cudnn as cudnn
 from torch.utils.data import Dataset, DataLoader
+from torch.nn import functional as F
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(format="%(asctime)s.%(msecs)03d:%(levelname)s:%(name)s - %(message)s",
@@ -32,9 +33,6 @@ def start_inference_long_nlq():
         logger.info("Generate submissions")
         model.eval()
         criterion.eval()
-        window_length = 150
-
-        metrics = {}
 
         long_nlq_dataset = LongNlqDataset(opt)
         collate_fn = functools.partial(collate_fn_replace_corrupted, dataset=long_nlq_dataset)
@@ -58,22 +56,28 @@ def start_inference_long_nlq():
                 _target = target[i]
                 _data = data[i]
                 outputs = model(**_data)
+                prob = F.softmax(outputs["pred_logits"], -1)[...,0,None]
+                pred_spans = span_cxw_to_xx(outputs["pred_spans"]) * _target['anno']['movie_duration']
 
                 preds[qid[i]] = {
-                    'pred_spans': span_cxw_to_xx(outputs["pred_spans"]) * _target['anno']['movie_duration'],
+                    'pred_spans': torch.cat([pred_spans,prob],dim=2),
                     'pred_cls': outputs['pred_cls'][:, 0]}
 
-            _pred = list( map(preds.get, qid) )
-            metrics = long_nlq_metrics(_pred, target, qid=qid, metrics=metrics)
+                _pred = preds[qid[i]]
+                _ground_truth = [{'qid': qid[i],
+                                  'relevant_windows': _target['anno']['ext_timestamps'],
+                                  'is_foreground': bool(_is_foreground)} for _is_foreground in _target['is_foreground']]
+                _submission = [{'qid': qid[i],
+                                'pred_relevant_windows': _span.tolist(),
+                                'pred_cls': [float(_pred['pred_cls'][idx, 0])]} for idx, _span in
+                               enumerate(_pred['pred_spans'])]
+
+                metrics[qid[i]] = eval_submission(_submission, _ground_truth, verbose=False)
 
             if opt.debug:
                 break
 
-        avg_metrics = {'accuracy': np.mean([metrics[key]['accuracy'] for key in metrics.keys()]),
-                       'recall': np.mean([metrics[key]['recall'] for key in metrics.keys()]),
-                       'precision': np.mean([metrics[key]['precision'] for key in metrics.keys()])
-                       }
-        logger.info("\naverage metrics\n{}".format(pprint.pformat(avg_metrics, indent=4)))
+        logger.info("\naverage metrics\n{}".format(pprint.pformat(final_eval_metrics, indent=4)))
 
 
 if __name__ == '__main__':
