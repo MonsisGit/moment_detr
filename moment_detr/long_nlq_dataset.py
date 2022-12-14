@@ -19,13 +19,13 @@ logging.basicConfig(format="%(asctime)s.%(msecs)03d:%(levelname)s:%(name)s - %(m
 
 class LongNlqDataset(Dataset):
     def __init__(self, opt, stride=0.5,
-                 window_length=150, test_file='MAD_test.json',
+                 window_length=150,
                  video_fatures_path='CLIP_L14_frames_features_5fps.h5'):
         self.opt = opt
         self.data_ratio = opt.data_ratio
         self.lang_path = os.path.join(opt.t_feat_dir, opt.lang_feat_path)
         self.video_path = os.path.join(opt.v_feat_dirs[0], video_fatures_path)
-        self.anno_path = os.path.join(opt.t_feat_dir, 'annotations', test_file)
+        self.anno_path = os.path.join(opt.eval_path_long_nlq)
         data = self.get_data()
         self.lang_feats = data[0]
         self.video_feats = data[1]

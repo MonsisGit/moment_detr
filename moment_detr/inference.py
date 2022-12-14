@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from ignite.handlers.param_scheduler import create_lr_scheduler_with_warmup
-
+from moment_detr.inference_long_nlq import start_inference_long_nlq
 from moment_detr.config import TestOptions
 from moment_detr.model import build_model
 from moment_detr.span_utils import span_cxw_to_xx
@@ -289,4 +289,5 @@ def start_inference():
 
 
 if __name__ == '__main__':
-    start_inference()
+    #start_inference()
+    start_inference_long_nlq()

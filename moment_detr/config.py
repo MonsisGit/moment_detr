@@ -66,6 +66,7 @@ class BaseOptions(object):
         parser.add_argument("--max_windows", type=int, default=5)
 
         parser.add_argument("--train_path", type=str, default=None)
+        parser.add_argument("--eval_path_long_nlq", type=str, default='/nfs/data3/goldhofer/mad_dataset/annotations/MAD_test.json')
         parser.add_argument("--eval_path", type=str, default=None,
                             help="Evaluating during training, for Dev set. If None, will only do training, ")
         parser.add_argument("--no_norm_vfeat", action="store_true", help="Do not do normalize video feat")

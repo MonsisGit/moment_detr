@@ -6,7 +6,7 @@ import functools
 import os
 
 from moment_detr.config import TestOptions
-from moment_detr.inference import setup_model
+from moment_detr.model import build_model
 from moment_detr.span_utils import span_cxw_to_xx
 from moment_detr.long_nlq_dataset import LongNlqDataset, collate_fn_replace_corrupted
 from standalone_eval.eval import eval_submission
@@ -28,7 +28,11 @@ def start_inference_long_nlq():
     cudnn.benchmark = True
     cudnn.deterministic = False
 
-    model, criterion, _, _ = setup_model(opt)
+    model, criterion = build_model(opt)
+    if opt.device.type == "cuda":
+        logger.info("CUDA enabled.")
+        model.to(opt.device)
+        criterion.to(opt.device)
     save_submission_filename = "inference_long_nlq_preds.jsonl"
 
     with torch.no_grad():
@@ -41,8 +45,8 @@ def start_inference_long_nlq():
         long_nlq_loader = DataLoader(
             long_nlq_dataset,
             collate_fn=collate_fn,
-            batch_size=8,
-            num_workers=8,
+            batch_size=10,
+            num_workers=10,
             shuffle=False,
             pin_memory=opt.pin_memory
         )
@@ -121,6 +125,8 @@ def eval_postprocessing(metrics, preds, opt, save_submission_filename):
     submission_path = os.path.join(opt.results_dir, save_submission_filename)
     save_metrics_path = submission_path.replace(".jsonl", "_metrics.json")
     save_json(avg_metrics, save_metrics_path, save_pretty=True, sort_keys=False)
+    preds = {key: {'pred_spans': np.array(preds[key]['pred_spans'].cpu()).tolist(),
+                   'pred_cls': np.array(preds[key]['pred_cls'].cpu()).tolist()} for key in preds.keys()}
     save_jsonl(preds, submission_path)
 
 
