@@ -3,12 +3,14 @@ import pprint
 import numpy as np
 from tqdm import tqdm
 import functools
+import os
 
 from moment_detr.config import TestOptions
 from moment_detr.inference import setup_model
 from moment_detr.span_utils import span_cxw_to_xx
 from moment_detr.long_nlq_dataset import LongNlqDataset, collate_fn_replace_corrupted
 from standalone_eval.eval import eval_submission
+from utils.basic_utils import save_json, save_jsonl
 
 import torch
 import torch.backends.cudnn as cudnn
@@ -85,13 +87,41 @@ def start_inference_long_nlq():
                                                   range_names=['full'],
                                                   is_nms=True)
 
-            if opt.debug:
-                break
-        ret_metrics = [metrics[key]['full']['CLS'] for key in metrics.keys()]
-        avg_ret_metrics = {'accuracy': np.array([metric['accuracy'] for metric in ret_metrics]).mean(),
-                           'recall': np.array([metric['recall'] for metric in ret_metrics]).mean(),
-                           'precision': np.array([metric['precision'] for metric in ret_metrics]).mean()}
-        logger.info("\naverage metrics\n{}".format(pprint.pformat(final_eval_metrics, indent=4)))
+                if opt.debug:
+                    break
+        eval_postprocessing(metrics, preds,
+                            opt=opt,
+                            save_submission_filename=save_submission_filename)
+
+
+def eval_postprocessing(metrics, preds, opt, save_submission_filename):
+    ret_metrics = [metrics[key]['full']['CLS'] for key in metrics.keys()]
+    mr_metrics = [metrics[key]['brief'] for key in metrics.keys()]
+
+    # retrieval metrics are calculated only on foreground windows
+    avg_ret_metrics = {'accuracy': np.array([metric['accuracy'] for metric in ret_metrics]).mean().round(5),
+                       'recall': np.array([metric['recall'] for metric in ret_metrics]).mean().round(5),
+                       'precision': np.array([metric['precision'] for metric in ret_metrics]).mean().round(5)}
+
+    # mr metrics return -1, if there are no foreground predictions or no data is in the selected window range (length_ranges)
+    avg_mr_metrics = {'MR-R1@0.5 (nms)':
+                          np.array([m['MR-R1@0.5 (nms)'] for m in mr_metrics if
+                                    m['MR-R1@0.5 (nms)'] != -1]).mean().round(5),
+                      'MR-R5@0.5 (nms)':
+                          np.array([m['MR-R5@0.5 (nms)'] for m in mr_metrics if
+                                    m['MR-R5@0.5 (nms)'] != -1]).mean().round(5),
+                      'MR-R10@0.5 (nms)':
+                          np.array([m['MR-R10@0.5 (nms)'] for m in mr_metrics if
+                                    m['MR-R10@0.5 (nms)'] != -1]).mean().round(
+                              5)}
+    avg_metrics = {'avg_mr_metrics': avg_mr_metrics,
+                   'avg_ret_metrics': avg_ret_metrics}
+
+    logger.info("\naverage metrics\n{}".format(pprint.pformat(avg_metrics, indent=4)))
+    submission_path = os.path.join(opt.results_dir, save_submission_filename)
+    save_metrics_path = submission_path.replace(".jsonl", "_metrics.json")
+    save_json(avg_metrics, save_metrics_path, save_pretty=True, sort_keys=False)
+    save_jsonl(preds, submission_path)
 
 
 if __name__ == '__main__':

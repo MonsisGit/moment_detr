@@ -73,7 +73,7 @@ def compute_mr_ap(submission, ground_truth, iou_thds=np.linspace(0.5, 0.95, 10),
     return iou_thd2ap
 
 
-def compute_mr_rk(submission, ground_truth, iou_thds=[0.1, 0.3, 0.5], top_ks=[1, 2, 5, 10], is_nms=False, is_long_nlq=False):
+def compute_mr_rk(submission, ground_truth, iou_thds=[0.1, 0.3, 0.5], top_ks=[1, 2, 5, 10], is_nms=False):
     """If a predicted segment has IoU >= iou_thd with one of the 1st GT segment, we define it positive"""
 
     iou_thds = [float(f"{e:.2f}") for e in iou_thds]
@@ -81,7 +81,8 @@ def compute_mr_rk(submission, ground_truth, iou_thds=[0.1, 0.3, 0.5], top_ks=[1,
     iou_thd2recall_at_k = {}
     for top_k in top_ks:
         for s in submission:
-            pred_qid2window[s["qid"]] = [k[0:2] for k in s["pred_relevant_windows"][0:top_k]]  # :2 rm scores
+            pred_qid2window[s["qid"]] = [k[0:2] for k in s["pred_relevant_windows"][0:top_k] if
+                                         k[0:2] != [0, 0]]  # :2 rm scores
 
         iou_thd2recall_at_d = []
         for d in ground_truth:
@@ -222,33 +223,32 @@ def eval_moment_retrieval(submission, ground_truth, verbose=True, is_nms=False,
             iou_thd2average_precision = compute_mr_ap(_submission, _ground_truth, num_workers=8, chunksize=50)
             iou_thd2recall_at_k = compute_mr_rk(submission=_submission,
                                                 ground_truth=_ground_truth,
-                                                is_nms=is_nms,
-                                                is_long_nlq=is_long_nlq)
+                                                is_nms=is_nms)
 
             if verbose:
                 print(f"[eval_moment_retrieval] [{name}] {time.time() - start_time:.2f} seconds")
         else:
             iou_thd2average_precision = {"0.5": -1,
-                                      "0.55": -1,
-                                      "0.6": -1,
-                                      "0.65": -1,
-                                      "0.70": -1,
-                                      "0.75": -1,
-                                      "0.8": -1,
-                                      "0.85": -1,
-                                      "0.9": -1,
-                                      "0.95": -1,
-                                      "average": -1,
-                                      }
+                                         "0.55": -1,
+                                         "0.6": -1,
+                                         "0.65": -1,
+                                         "0.70": -1,
+                                         "0.75": -1,
+                                         "0.8": -1,
+                                         "0.85": -1,
+                                         "0.9": -1,
+                                         "0.95": -1,
+                                         "average": -1,
+                                         }
             iou_thd2recall_at_k = {'0.1@1': -1,
-                                     '0.3@1': -1,
-                                     '0.5@1': -1,
-                                     '0.1@5': -1,
-                                     '0.3@5': -1,
-                                     '0.5@5': -1,
-                                     '0.1@10': -1,
-                                     '0.3@10': -1,
-                                     '0.5@10': -1, }
+                                   '0.3@1': -1,
+                                   '0.5@1': -1,
+                                   '0.1@5': -1,
+                                   '0.3@5': -1,
+                                   '0.5@5': -1,
+                                   '0.1@10': -1,
+                                   '0.3@10': -1,
+                                   '0.5@10': -1, }
 
         ret_metrics[name] = {"MR-mAP": iou_thd2average_precision,
                              "MR-RK": iou_thd2recall_at_k,
