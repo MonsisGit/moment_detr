@@ -47,7 +47,8 @@ class LongNlqDataset(Dataset):
             n_examples = int(len(annos) * self.data_ratio)
             if n_examples == 0:
                 n_examples = 1
-            annos = annos[:n_examples]
+            annos = {key:annos[key] for key in list(annos.keys())[:n_examples]}
+
             logger.info("Using {}% of the data: {} examples"
                         .format(self.data_ratio * 100, n_examples))
         return [lang_feats, video_feats, annos]

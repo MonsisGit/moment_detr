@@ -56,6 +56,7 @@ def start_inference_long_nlq():
                 _target = target[i]
                 _data = data[i]
                 outputs = model(**_data)
+
                 prob = F.softmax(outputs["pred_logits"], -1)[..., 0, None]
                 pred_spans = span_cxw_to_xx(outputs["pred_spans"]) * _target['anno']['movie_duration']
 
@@ -64,25 +65,32 @@ def start_inference_long_nlq():
                     'pred_cls': outputs['pred_cls'][:, 0]}
 
                 _pred = preds[qid[i]]
-                is_foreground_idx = (torch.where(torch.sigmoid(_pred['pred_cls'][:, 0]) > 0.5)[0]).cpu()
-                if is_foreground_idx.shape[0]>0:
-                    _ground_truth = [{'qid': qid[i],
-                                      'relevant_windows': [_target['anno']['ext_timestamps']],
-                                      'is_foreground': bool(_is_foreground)} for _is_foreground in _target['is_foreground'][is_foreground_idx]]
-                    _submission = [{'qid': qid[i],
-                                    'pred_relevant_windows': _span.tolist(),
-                                    'pred_cls': [float(_pred['pred_cls'][idx, 0])]} for idx, _span in
-                                   enumerate(_pred['pred_spans'][is_foreground_idx])]
 
-                    metrics[qid[i]] = eval_submission(_submission, _ground_truth,
-                                                      verbose=False,
-                                                      is_long_nlq=True,
-                                                      length_ranges=[[0, 200]],
-                                                      range_names=['full'])
+                # R@K should be calculated for windows, which are predicted foreground
+                # Retrieval metrics are calculated on foreground windows only
+                _ground_truth = [{'qid': qid[i],
+                                  'relevant_windows': [_target['anno']['ext_timestamps']],
+                                  'is_foreground': bool(_is_foreground)} for _is_foreground in
+                                 _target['is_foreground']]
+
+                _submission = [{'qid': qid[i],
+                                'pred_relevant_windows': _span.tolist(),
+                                'pred_cls': [float(_pred['pred_cls'][idx, 0])]} for idx, _span in
+                               enumerate(_pred['pred_spans'])]
+
+                metrics[qid[i]] = eval_submission(_submission, _ground_truth,
+                                                  verbose=False,
+                                                  is_long_nlq=True,
+                                                  length_ranges=[[0, 200]],
+                                                  range_names=['full'],
+                                                  is_nms=True)
 
             if opt.debug:
                 break
-
+        ret_metrics = [metrics[key]['full']['CLS'] for key in metrics.keys()]
+        avg_ret_metrics = {'accuracy': np.array([metric['accuracy'] for metric in ret_metrics]).mean(),
+                           'recall': np.array([metric['recall'] for metric in ret_metrics]).mean(),
+                           'precision': np.array([metric['precision'] for metric in ret_metrics]).mean()}
         logger.info("\naverage metrics\n{}".format(pprint.pformat(final_eval_metrics, indent=4)))
 
 

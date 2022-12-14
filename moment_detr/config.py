@@ -192,7 +192,7 @@ class BaseOptions(object):
             saved_options = load_json(os.path.join(opt.model_dir, opt.saved_option_filename))
             for arg in saved_options:  # use saved options to overwrite all BaseOptions args.
                 if arg not in ["results_root", "num_workers", "nms_thd", "debug",  # "max_before_nms", "max_after_nms"
-                               "max_pred_l", "min_pred_l",
+                               "max_pred_l", "min_pred_l", "data_ratio",
                                "resume", "resume_all", "no_sort_results"]:
                     setattr(opt, arg, saved_options[arg])
                     # TODO fix

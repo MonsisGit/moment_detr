@@ -73,8 +73,9 @@ def compute_mr_ap(submission, ground_truth, iou_thds=np.linspace(0.5, 0.95, 10),
     return iou_thd2ap
 
 
-def compute_mr_rk(submission, ground_truth, iou_thds=[0.1, 0.3, 0.5], top_ks=[1, 2, 5, 10], is_nms=False):
+def compute_mr_rk(submission, ground_truth, iou_thds=[0.1, 0.3, 0.5], top_ks=[1, 2, 5, 10], is_nms=False, is_long_nlq=False):
     """If a predicted segment has IoU >= iou_thd with one of the 1st GT segment, we define it positive"""
+
     iou_thds = [float(f"{e:.2f}") for e in iou_thds]
     pred_qid2window = dict()
     iou_thd2recall_at_k = {}
@@ -144,13 +145,15 @@ def get_window_len(window):
     return window[1] - window[0]
 
 
-def get_data_by_range(submission, ground_truth, len_range):
+def get_data_by_range(submission, ground_truth, len_range, is_long_nlq):
     """ keep queries with ground truth window length in the specified length range.
     Args:
         submission:
         ground_truth:
         len_range: [min_l (int), max_l (int)]. the range is (min_l, max_l], i.e., min_l < l <= max_l
     """
+    if is_long_nlq:
+        return submission, ground_truth
     is_foreground_idx = [idx for idx, g in enumerate(ground_truth) if g['is_foreground']]
     ground_truth = [g for idx, g in enumerate(ground_truth) if idx in is_foreground_idx]
     submission = [g for idx, g in enumerate(submission) if idx in is_foreground_idx]
@@ -201,33 +204,31 @@ def eval_moment_retrieval(submission, ground_truth, verbose=True, is_nms=False,
     for l_range, name in zip(length_ranges, range_names):
         if verbose:
             start_time = time.time()
+
+        _submission, _ground_truth = get_data_by_range(submission, ground_truth, l_range, is_long_nlq)
+        cls_acc, cls_recall, cls_precision = compute_ret_metrics(_submission, _ground_truth)
+
         if is_long_nlq:
-            _submission = submission
-            _ground_truth = ground_truth
-        else:
-            _submission, _ground_truth = get_data_by_range(submission, ground_truth, l_range)
+            pred_proba = torch.tensor([s['pred_cls'] for s in submission]).sigmoid()
+            predicted_foreground_idx = (torch.where(pred_proba > 0.5)[0]).cpu()
+            _submission = [submission[i] for i in predicted_foreground_idx]
+            _ground_truth = [ground_truth[i] for i in predicted_foreground_idx]
+
         if len(_submission) != 0:
             if verbose:
                 print(f"{name}: {l_range}, {len(_ground_truth)}/{len(ground_truth)}="
                       f"{100 * len(_ground_truth) / len(ground_truth):.2f}% examples.")
 
             iou_thd2average_precision = compute_mr_ap(_submission, _ground_truth, num_workers=8, chunksize=50)
-            # iou_thd2recall_at_k = compute_mr_r1(_submission, _ground_truth)
             iou_thd2recall_at_k = compute_mr_rk(submission=_submission,
                                                 ground_truth=_ground_truth,
-                                                is_nms=is_nms)
-            cls_acc, cls_recall, cls_precision = compute_cls_acc(_submission, _ground_truth)
+                                                is_nms=is_nms,
+                                                is_long_nlq=is_long_nlq)
 
-            ret_metrics[name] = {"MR-mAP": iou_thd2average_precision,
-                                 "MR-RK": iou_thd2recall_at_k,
-                                 'CLS': {'accuracy': round(cls_acc, 2),
-                                         'recall': round(cls_recall, 2),
-                                         'precision': round(cls_precision, 2)}
-                                 }
             if verbose:
                 print(f"[eval_moment_retrieval] [{name}] {time.time() - start_time:.2f} seconds")
         else:
-            placeholder_scores_mAP = {"0.5": -1,
+            iou_thd2average_precision = {"0.5": -1,
                                       "0.55": -1,
                                       "0.6": -1,
                                       "0.65": -1,
@@ -239,7 +240,7 @@ def eval_moment_retrieval(submission, ground_truth, verbose=True, is_nms=False,
                                       "0.95": -1,
                                       "average": -1,
                                       }
-            placeholder_scores_mr = {'0.1@1': -1,
+            iou_thd2recall_at_k = {'0.1@1': -1,
                                      '0.3@1': -1,
                                      '0.5@1': -1,
                                      '0.1@5': -1,
@@ -249,41 +250,30 @@ def eval_moment_retrieval(submission, ground_truth, verbose=True, is_nms=False,
                                      '0.3@10': -1,
                                      '0.5@10': -1, }
 
-            ret_metrics[name] = {"MR-mAP": placeholder_scores_mAP,
-                                 "MR-RK": placeholder_scores_mr,
-                                 'CLS': {'accuracy': -1,
-                                         'recall': -1,
-                                         'precision': -1}
-                                 }
+        ret_metrics[name] = {"MR-mAP": iou_thd2average_precision,
+                             "MR-RK": iou_thd2recall_at_k,
+                             'CLS': {'accuracy': round(cls_acc, 2),
+                                     'recall': round(cls_recall, 2),
+                                     'precision': round(cls_precision, 2)}
+                             }
 
     return ret_metrics
 
 
-def compute_cls_acc(_submission, _ground_truth, ):
+def compute_ret_metrics(_submission, _ground_truth):
+    foreground_idx = torch.where(torch.tensor([_gt['is_foreground'] for _gt in _ground_truth]) == True)[0]
+    if foreground_idx.shape[0] == 0:
+        return 0, 0, 0
+
     binary_recall = BinaryRecall()
     binary_precision = BinaryPrecision()
     binary_accuracy = BinaryAccuracy()
 
-    foreground_idx = torch.where(torch.tensor([_gt['is_foreground'] for _gt in _ground_truth]) == True)[0]
     preds = torch.tensor([s['pred_cls'] for s in _submission]).squeeze()[foreground_idx]
     targets = torch.tensor([int(gt['is_foreground']) for gt in _ground_truth])[foreground_idx]
 
     return float(binary_accuracy(preds, targets)), float(binary_recall(preds, targets)), float(
         binary_precision(preds, targets))
-
-
-def long_nlq_metrics(_submission, _ground_truth):
-    binary_recall = BinaryRecall()
-    binary_precision = BinaryPrecision()
-    binary_accuracy = BinaryAccuracy()
-
-    preds = _submission['pred_cls'][:, 0].cpu()
-    targets = _ground_truth['is_foreground']
-
-    accuracy = float(binary_accuracy(preds, targets))
-    recall = float(binary_recall(preds, targets))
-    precision = float(binary_precision(preds, targets))
-    return accuracy, recall, precision
 
 
 def compute_hl_hit1(qid2preds, qid2gt_scores_binary):
@@ -443,18 +433,15 @@ def eval_submission(submission, ground_truth, verbose=True, match_number=False, 
             }
         else:
             moment_ret_scores_brief = {
-                "CLS-Acc": moment_ret_scores['CLS']["accuracy"],
-                "CLS-Recall": moment_ret_scores['CLS']["recall"],
-                "CLS-Precision": moment_ret_scores['CLS']["precision"],
+                "CLS-Acc": moment_ret_scores["full"]['CLS']["accuracy"],
+                "CLS-Recall": moment_ret_scores["full"]['CLS']["recall"],
+                "CLS-Precision": moment_ret_scores["full"]['CLS']["precision"],
                 "MR-mAP": moment_ret_scores["full"]["MR-mAP"]["average"],
 
                 "MR-R1@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@1"],
                 "MR-R2@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@2"],
                 "MR-R5@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@5"],
                 "MR-R10@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@10"],
-                "(short) MR-R1@0.5": moment_ret_scores["short_0_10"]["MR-RK"]["0.5@1"],
-                "(middle) MR-R1@0.5": moment_ret_scores["middle_10_20"]["MR-RK"]["0.5@1"],
-                "(long) MR-R1@0.5": moment_ret_scores["long_20_30"]["MR-RK"]["0.5@1"],
             }
         eval_metrics_brief.update(
             sorted([(k, v) for k, v in moment_ret_scores_brief.items()], key=lambda x: x[0]))
