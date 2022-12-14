@@ -20,7 +20,7 @@ class Transformer(nn.Module):
     def __init__(self, d_model=512, nhead=8, num_encoder_layers=6,
                  num_decoder_layers=6, dim_feedforward=2048, dropout=0.1,
                  activation="relu", normalize_before=False,
-                 return_intermediate_dec=False):
+                 return_intermediate_dec=False, ret_tok_prop=False):
         super().__init__()
 
         # TransformerEncoderLayerThin
@@ -29,6 +29,9 @@ class Transformer(nn.Module):
         encoder_norm = nn.LayerNorm(d_model) if normalize_before else None
         self.encoder = TransformerEncoder(encoder_layer, num_encoder_layers, encoder_norm)
 
+        self.ret_tok_prop=ret_tok_prop
+        if ret_tok_prop:
+            self.ret_prop_embed = nn.Linear(d_model, d_model)
         # TransformerDecoderLayerThin
         decoder_layer = TransformerDecoderLayer(d_model, nhead, dim_feedforward,
                                                 dropout, activation, normalize_before)
@@ -65,16 +68,19 @@ class Transformer(nn.Module):
         pos_embed = pos_embed.permute(1, 0, 2)   # (L, batch_size, d)
         query_embed = query_embed.unsqueeze(1).repeat(1, bs, 1)  # (#queries, batch_size, d)
 
-        tgt = torch.zeros_like(query_embed)
+
         memory = self.encoder(src, src_key_padding_mask=mask, pos=pos_embed)  # (L, batch_size, d)
+
+        tgt = self.ret_prop_embed(memory[-1])[None].repeat((query_embed.shape[0], 1, 1)) \
+            if self.ret_tok_prop else torch.zeros_like(query_embed)
 
         #remove cls token from encoder output
         #decoder_memory = memory[1:]
         #pos_embed = pos_embed[1:]
         #mask = mask[:,1:]
 
-        hs = self.decoder(tgt, memory[1:], memory_key_padding_mask=mask[:,1:],
-                          pos=pos_embed[1:], query_pos=query_embed)  # (#layers, #queries, batch_size, d)
+        hs = self.decoder(tgt, memory[:-1], memory_key_padding_mask=mask[:,:-1],
+                          pos=pos_embed[:-1], query_pos=query_embed)  # (#layers, #queries, batch_size, d)
         hs = hs.transpose(1, 2)  # (#layers, batch_size, #qeries, d)
         # memory = memory.permute(1, 2, 0)  # (batch_size, d, L)
         memory = memory.transpose(0, 1)  # (batch_size, L, d)
@@ -465,6 +471,7 @@ def build_transformer(args):
         num_decoder_layers=args.dec_layers,
         normalize_before=args.pre_norm,
         return_intermediate_dec=True,
+        ret_tok_prop=args.ret_tok_prop
     )
 
 

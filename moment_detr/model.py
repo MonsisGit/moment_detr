@@ -23,7 +23,7 @@ class MomentDETR(nn.Module):
     def __init__(self, transformer, position_embed, txt_position_embed, txt_dim, vid_dim,
                  num_queries, input_dropout, aux_loss=False,
                  contrastive_align_loss=False, contrastive_hdim=64,
-                 max_v_l=75, span_loss_type="l1", use_txt_pos=False, n_input_proj=2):
+                 max_v_l=75, span_loss_type="l1", use_txt_pos=False, n_input_proj=2, use_ret_tok=False):
         """ Initializes the model.
         Parameters:
             transformer: torch module of the transformer architecture. See transformer.py
@@ -53,8 +53,11 @@ class MomentDETR(nn.Module):
         self.max_v_l = max_v_l
         span_pred_dim = 2 if span_loss_type == "l1" else max_v_l * 2
         self.span_embed = MLP(hidden_dim, hidden_dim, span_pred_dim, 3)
-        self.cls_embed = MLP(hidden_dim, hidden_dim, 1, 3)
         self.class_embed = nn.Linear(hidden_dim, 2)  # 0: background, 1: foreground
+        self.use_ret_tok=use_ret_tok
+        if use_ret_tok:
+            self.ret_embed = MLP(hidden_dim, hidden_dim, 1, 3)
+            self.ret_token = nn.Parameter(torch.zeros(1, 1, hidden_dim)) # 0: background, 1: foreground
         self.use_txt_pos = use_txt_pos
         self.n_input_proj = n_input_proj
         # self.foreground_thd = foreground_thd
@@ -87,8 +90,7 @@ class MomentDETR(nn.Module):
         self.saliency_proj = nn.Linear(hidden_dim, 1)
         self.aux_loss = aux_loss
 
-        # CLS Token
-        self.cls_token = nn.Parameter(torch.zeros(1, 1, hidden_dim))
+
 
     def forward(self, src_txt, src_txt_mask, src_vid, src_vid_mask):
         """The forward expects two tensors:
@@ -112,11 +114,12 @@ class MomentDETR(nn.Module):
         src_txt = self.input_txt_proj(src_txt)
 
         # https: // amaarora.github.io / 2021 / 01 / 18 / ViT.html
-        cls_token = self.cls_token.expand(bs, -1, -1).to(src_vid.device)
-        cls_mask = torch.ones(size=(bs, 1)).to(src_vid.device)
+        if self.use_ret_tok:
+            ret_token = self.ret_token.expand(bs, -1, -1).to(src_txt.device)
+            ret_mask = torch.ones(size=(bs, 1)).to(src_txt.device)
 
-        src_vid = torch.cat([cls_token, src_vid], dim=1)  # (bsz, cls+L_vid+L_txt, d)
-        src_vid_mask = torch.cat([cls_mask, src_vid_mask], dim=1)
+            src_txt = torch.cat([src_txt, ret_token], dim=1)  # (bsz, cls+L_vid+L_txt, d)
+            src_txt_mask = torch.cat([src_txt_mask, ret_mask], dim=1)
 
         src = torch.cat([src_vid, src_txt], dim=1)  # (bsz, L_vid+L_txt, d)
         mask = torch.cat([src_vid_mask, src_txt_mask], dim=1).bool()  # (bsz, L_vid+L_txt)
@@ -135,17 +138,20 @@ class MomentDETR(nn.Module):
         if self.span_loss_type == "l1":
             outputs_coord = outputs_coord.sigmoid()
 
-        txt_mem = memory[:, src_vid.shape[1]:]  # (bsz, L_txt, d)
-        vid_mem = memory[:, 1:src_vid.shape[1]]  # (bsz, L_vid, d)
-
-        cls_mem = memory[:, None, 0]  # bsz, 1, d
-        outputs_cls = self.cls_embed(cls_mem)
+        if self.use_ret_tok:
+            txt_mem = memory[:, src_vid.shape[1]:-1]  # (bsz, L_txt, d)
+            vid_mem = memory[:, :src_vid.shape[1]]  # (bsz, L_vid, d)
+            ret_mem = memory[:, None, -1]  # bsz, 1, d
+            outputs_ret = self.ret_embed(ret_mem)
+        else:
+            txt_mem = memory[:, src_vid.shape[1]:]  # (bsz, L_txt, d)
+            vid_mem = memory[:, :src_vid.shape[1]]
 
         out = {'pred_logits': outputs_class[-1],
                'pred_spans': outputs_coord[-1],
-               'pred_cls': outputs_cls}
+               'pred_cls': outputs_ret if self.use_ret_tok else None}
 
-        if self.contrastive_align_loss:
+        if self.contrastive_align_loss: #TODO: Check if we can use it
             proj_queries = F.normalize(self.contrastive_align_projection_query(hs), p=2, dim=-1)
             proj_txt_mem = F.normalize(self.contrastive_align_projection_txt(txt_mem), p=2, dim=-1)
             proj_vid_mem = F.normalize(self.contrastive_align_projection_vid(vid_mem), p=2, dim=-1)
@@ -479,6 +485,7 @@ def build_model(args):
         span_loss_type=args.span_loss_type,
         use_txt_pos=args.use_txt_pos,
         n_input_proj=args.n_input_proj,
+        use_ret_tok=args.ret_tok,
     )
 
     matcher = build_matcher(args)

@@ -164,6 +164,9 @@ class BaseOptions(object):
                             help="use exact timestamps instead of rounded to sampling fps")
         parser.add_argument("--no_shuffle", action="store_true",
                             help="dont shuffle training data")
+        parser.add_argument("--ret_tok", action="store_true", help="use ret tok in encoder")
+        parser.add_argument("--ret_tok_prop", action="store_true", help="use ret tok in decoder")
+        parser.add_argument("--gumbel_softmax", action="store_true", help="use hard binary classification retrieval")
 
         self.parser = parser
 

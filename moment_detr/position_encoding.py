@@ -10,8 +10,10 @@ from torch import nn
 class TrainablePositionalEncoding(nn.Module):
     """Construct the embeddings from word, position and token_type embeddings.
     """
-    def __init__(self, max_position_embeddings, hidden_size, dropout=0.1):
+    def __init__(self, max_position_embeddings, hidden_size, dropout=0.1, ret_tok=False):
         super(TrainablePositionalEncoding, self).__init__()
+        if ret_tok:
+            max_position_embeddings += 1
         self.position_embeddings = nn.Embedding(max_position_embeddings, hidden_size)
         self.LayerNorm = nn.LayerNorm(hidden_size)
         self.dropout = nn.Dropout(dropout)
@@ -111,5 +113,5 @@ def build_position_encoding(args):
 
     txt_pos_embed = TrainablePositionalEncoding(
             max_position_embeddings=args.max_q_l,
-            hidden_size=args.hidden_dim, dropout=args.input_dropout)
+            hidden_size=args.hidden_dim, dropout=args.input_dropout, ret_tok=args.ret_tok)
     return position_embedding, txt_pos_embed
