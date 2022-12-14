@@ -192,30 +192,38 @@ def get_data_by_range(submission, ground_truth, len_range):
 
 
 def eval_moment_retrieval(submission, ground_truth, verbose=True, is_nms=False,
-                          is_long_nlq=False):
-    length_ranges = [[0, 10], [10, 20], [20, 30], [0, 200], ]  #
-    range_names = ["short", "middle", "long", "full"]
+                          is_long_nlq=False, length_ranges=[[0, 10], [10, 20], [20, 30], [0, 200], ],
+                          range_names=["short", "middle", "long", "full"]):
     range_names = [f'{d}_{length_ranges[idx][0]}_{length_ranges[idx][1]}' if d != 'full' else 'full' for idx, d in
                    enumerate(range_names)]
 
-    cls_acc, cls_recall, cls_precision = compute_cls_acc(submission, ground_truth)
     ret_metrics = {}
     for l_range, name in zip(length_ranges, range_names):
         if verbose:
             start_time = time.time()
-        #TODO fix with long nlq
-        _submission, _ground_truth = get_data_by_range(submission, ground_truth, l_range)
+        if is_long_nlq:
+            _submission = submission
+            _ground_truth = ground_truth
+        else:
+            _submission, _ground_truth = get_data_by_range(submission, ground_truth, l_range)
         if len(_submission) != 0:
             if verbose:
                 print(f"{name}: {l_range}, {len(_ground_truth)}/{len(ground_truth)}="
-                  f"{100 * len(_ground_truth) / len(ground_truth):.2f}% examples.")
+                      f"{100 * len(_ground_truth) / len(ground_truth):.2f}% examples.")
 
             iou_thd2average_precision = compute_mr_ap(_submission, _ground_truth, num_workers=8, chunksize=50)
             # iou_thd2recall_at_k = compute_mr_r1(_submission, _ground_truth)
             iou_thd2recall_at_k = compute_mr_rk(submission=_submission,
                                                 ground_truth=_ground_truth,
                                                 is_nms=is_nms)
-            ret_metrics[name] = {"MR-mAP": iou_thd2average_precision, "MR-RK": iou_thd2recall_at_k}
+            cls_acc, cls_recall, cls_precision = compute_cls_acc(_submission, _ground_truth)
+
+            ret_metrics[name] = {"MR-mAP": iou_thd2average_precision,
+                                 "MR-RK": iou_thd2recall_at_k,
+                                 'CLS': {'accuracy': round(cls_acc, 2),
+                                         'recall': round(cls_recall, 2),
+                                         'precision': round(cls_precision, 2)}
+                                 }
             if verbose:
                 print(f"[eval_moment_retrieval] [{name}] {time.time() - start_time:.2f} seconds")
         else:
@@ -241,11 +249,13 @@ def eval_moment_retrieval(submission, ground_truth, verbose=True, is_nms=False,
                                      '0.3@10': -1,
                                      '0.5@10': -1, }
 
-            ret_metrics[name] = {"MR-mAP": placeholder_scores_mAP, "MR-RK": placeholder_scores_mr}
+            ret_metrics[name] = {"MR-mAP": placeholder_scores_mAP,
+                                 "MR-RK": placeholder_scores_mr,
+                                 'CLS': {'accuracy': -1,
+                                         'recall': -1,
+                                         'precision': -1}
+                                 }
 
-    ret_metrics['CLS'] = {'accuracy': round(cls_acc, 2),
-                          'recall': round(cls_recall, 2),
-                          'precision': round(cls_precision, 2)}
     return ret_metrics
 
 
@@ -253,8 +263,10 @@ def compute_cls_acc(_submission, _ground_truth, ):
     binary_recall = BinaryRecall()
     binary_precision = BinaryPrecision()
     binary_accuracy = BinaryAccuracy()
-    preds = torch.tensor([s['pred_cls'] for s in _submission]).squeeze()
-    targets = torch.tensor([int(gt['is_foreground']) for gt in _ground_truth])
+
+    foreground_idx = torch.where(torch.tensor([_gt['is_foreground'] for _gt in _ground_truth]) == True)[0]
+    preds = torch.tensor([s['pred_cls'] for s in _submission]).squeeze()[foreground_idx]
+    targets = torch.tensor([int(gt['is_foreground']) for gt in _ground_truth])[foreground_idx]
 
     return float(binary_accuracy(preds, targets)), float(binary_recall(preds, targets)), float(
         binary_precision(preds, targets))
@@ -265,7 +277,7 @@ def long_nlq_metrics(_submission, _ground_truth):
     binary_precision = BinaryPrecision()
     binary_accuracy = BinaryAccuracy()
 
-    preds = _submission['pred_cls'][:,0].cpu()
+    preds = _submission['pred_cls'][:, 0].cpu()
     targets = _ground_truth['is_foreground']
 
     accuracy = float(binary_accuracy(preds, targets))
@@ -369,7 +381,9 @@ def eval_highlight(submission, ground_truth, verbose=True):
     return highlight_det_metrics
 
 
-def eval_submission(submission, ground_truth, verbose=True, match_number=False, is_nms=False):
+def eval_submission(submission, ground_truth, verbose=True, match_number=False, is_nms=False,
+                    is_long_nlq=False, length_ranges=[[0, 10], [10, 20], [20, 30], [0, 200], ],
+                    range_names=["short", "middle", "long", "full"]):
     """
     Args:
         submission: list(dict), each dict is {
@@ -416,7 +430,8 @@ def eval_submission(submission, ground_truth, verbose=True, match_number=False, 
     eval_metrics_brief = OrderedDict()
     if "pred_relevant_windows" in submission[0]:
         moment_ret_scores = eval_moment_retrieval(
-            submission, ground_truth, verbose=verbose, is_nms=is_nms)
+            submission, ground_truth, verbose=verbose, is_nms=is_nms,
+            is_long_nlq=is_long_nlq, length_ranges=length_ranges, range_names=range_names)
 
         eval_metrics.update(moment_ret_scores)
         if is_nms:

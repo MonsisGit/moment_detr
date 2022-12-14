@@ -56,23 +56,29 @@ def start_inference_long_nlq():
                 _target = target[i]
                 _data = data[i]
                 outputs = model(**_data)
-                prob = F.softmax(outputs["pred_logits"], -1)[...,0,None]
+                prob = F.softmax(outputs["pred_logits"], -1)[..., 0, None]
                 pred_spans = span_cxw_to_xx(outputs["pred_spans"]) * _target['anno']['movie_duration']
 
                 preds[qid[i]] = {
-                    'pred_spans': torch.cat([pred_spans,prob],dim=2),
+                    'pred_spans': torch.cat([pred_spans, prob], dim=2),
                     'pred_cls': outputs['pred_cls'][:, 0]}
 
                 _pred = preds[qid[i]]
-                _ground_truth = [{'qid': qid[i],
-                                  'relevant_windows': _target['anno']['ext_timestamps'],
-                                  'is_foreground': bool(_is_foreground)} for _is_foreground in _target['is_foreground']]
-                _submission = [{'qid': qid[i],
-                                'pred_relevant_windows': _span.tolist(),
-                                'pred_cls': [float(_pred['pred_cls'][idx, 0])]} for idx, _span in
-                               enumerate(_pred['pred_spans'])]
+                is_foreground_idx = (torch.where(torch.sigmoid(_pred['pred_cls'][:, 0]) > 0.5)[0]).cpu()
+                if is_foreground_idx.shape[0]>0:
+                    _ground_truth = [{'qid': qid[i],
+                                      'relevant_windows': [_target['anno']['ext_timestamps']],
+                                      'is_foreground': bool(_is_foreground)} for _is_foreground in _target['is_foreground'][is_foreground_idx]]
+                    _submission = [{'qid': qid[i],
+                                    'pred_relevant_windows': _span.tolist(),
+                                    'pred_cls': [float(_pred['pred_cls'][idx, 0])]} for idx, _span in
+                                   enumerate(_pred['pred_spans'][is_foreground_idx])]
 
-                metrics[qid[i]] = eval_submission(_submission, _ground_truth, verbose=False)
+                    metrics[qid[i]] = eval_submission(_submission, _ground_truth,
+                                                      verbose=False,
+                                                      is_long_nlq=True,
+                                                      length_ranges=[[0, 200]],
+                                                      range_names=['full'])
 
             if opt.debug:
                 break
