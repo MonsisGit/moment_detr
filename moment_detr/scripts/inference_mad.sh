@@ -23,7 +23,8 @@ t_feat_dim=768
 device=0
 sampling_fps=5
 nms_thd=0.3
-data_ratio=0.01
+data_ratio=0.1
+num_workers=8
 
 PYTHONPATH=$PYTHONPATH:. python moment_detr/inference.py \
   --dset_name ${dset_name} \
@@ -36,7 +37,7 @@ PYTHONPATH=$PYTHONPATH:. python moment_detr/inference.py \
   --t_feat_dir ${t_feat_dir} \
   --t_feat_dim ${t_feat_dim} \
   --results_root ${results_root} \
-  --num_workers 8 \
+  --num_workers ${num_workers} \
   --exp_id ${exp_id} \
   --resume ${ckpt_path} \
   --device ${device} \

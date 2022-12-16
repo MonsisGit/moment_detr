@@ -65,7 +65,7 @@ def compute_mr_ap(submission, ground_truth, iou_thds=np.linspace(0.5, 0.95, 10),
 
     # print(f"compute_average_precision_detection {time.time() - start_time:.2f} seconds.")
     ap_array = np.array(list(qid2ap_list.values()))  # (#queries, #thd)
-    if ap_array.shape[1] == 0:
+    if ap_array.shape[0] == 0:
         return {'average': -1}
     ap_thds = ap_array.mean(0)  # mAP at different IoU thresholds.
     iou_thd2ap = dict(zip([str(e) for e in iou_thds], ap_thds))

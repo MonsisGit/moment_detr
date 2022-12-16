@@ -45,9 +45,9 @@ def start_inference_long_nlq():
         long_nlq_loader = DataLoader(
             long_nlq_dataset,
             collate_fn=collate_fn,
-            batch_size=10,
-            num_workers=10,
-            shuffle=True,
+            batch_size=4,
+            num_workers=opt.num_workers,
+            shuffle=False,
             pin_memory=opt.pin_memory
         )
         preds, metrics = {}, {}
@@ -71,32 +71,35 @@ def start_inference_long_nlq():
                 preds[qid[i]] = {
                     'pred_spans': ranked_spans,
                     'pred_cls': outputs['pred_cls'][:, 0]}
+                try:
+                    _pred = preds[qid[i]]
 
-                _pred = preds[qid[i]]
+                    # R@K should be calculated for windows, which are predicted foreground
+                    # Retrieval metrics are calculated on foreground windows only
+                    _ground_truth = [{'qid': qid[i],
+                                      'relevant_windows': [_target['anno']['ext_timestamps']],
+                                      'is_foreground': bool(_is_foreground)} for _is_foreground in
+                                     _target['is_foreground']]
 
-                # R@K should be calculated for windows, which are predicted foreground
-                # Retrieval metrics are calculated on foreground windows only
-                _ground_truth = [{'qid': qid[i],
-                                  'relevant_windows': [_target['anno']['ext_timestamps']],
-                                  'is_foreground': bool(_is_foreground)} for _is_foreground in
-                                 _target['is_foreground']]
+                    _submission = [{'qid': qid[i],
+                                    'pred_relevant_windows': _span,
+                                    'pred_cls': [float(_pred['pred_cls'][idx, 0])]} for idx, _span in
+                                   enumerate(_pred['pred_spans'])]
 
-                _submission = [{'qid': qid[i],
-                                'pred_relevant_windows': _span,
-                                'pred_cls': [float(_pred['pred_cls'][idx, 0])]} for idx, _span in
-                               enumerate(_pred['pred_spans'])]
+                    metrics[qid[i]] = eval_submission(_submission, _ground_truth,
+                                                      verbose=False,
+                                                      is_long_nlq=True,
+                                                      length_ranges=[[0, 200]],
+                                                      range_names=['full'],
+                                                      is_nms=True,
+                                                      iou_thds=[0.1, 0.3, 0.5],
+                                                      top_ks=[1, 5, 10, 50, 100])
+                except Exception as e:
+                    logger.info(f"Error: {e}")
 
-                metrics[qid[i]] = eval_submission(_submission, _ground_truth,
-                                                  verbose=False,
-                                                  is_long_nlq=True,
-                                                  length_ranges=[[0, 200]],
-                                                  range_names=['full'],
-                                                  is_nms=True,
-                                                  iou_thds=[0.1, 0.3, 0.5],
-                                                  top_ks=[1, 5, 10, 50, 100])
+            if opt.debug:
+                break
 
-                if opt.debug:
-                    break
         eval_postprocessing(metrics, preds,
                             opt=opt,
                             save_submission_filename=save_submission_filename)
@@ -131,7 +134,7 @@ def eval_postprocessing(metrics, preds, opt, save_submission_filename):
     save_json(avg_metrics, save_metrics_path, save_pretty=True, sort_keys=False)
     preds = {key: {'pred_spans': preds[key]['pred_spans'],
                    'pred_cls': np.array(preds[key]['pred_cls'].cpu()).tolist()} for key in preds.keys()}
-    save_jsonl(preds, submission_path)
+    save_json(preds, submission_path)
 
 
 if __name__ == '__main__':
