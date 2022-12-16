@@ -195,9 +195,30 @@ def get_data_by_range(submission, ground_truth, len_range, is_long_nlq):
     return submission_in_range, ground_truth_in_range
 
 
+def sort_pos_predicted(submission, ground_truth):
+    # moment retrieval recall is only calculated on positive predicted windows
+    pred_proba = torch.tensor([s['pred_cls'] for s in submission]).sigmoid()
+    predicted_foreground_idx = (torch.where(pred_proba > 0.5)[0]).cpu()
+    _submission = [submission[i] for i in predicted_foreground_idx]
+    # can be any list entry of ground truth, since all are same
+    _ground_truth = [ground_truth[0]]
+
+    # predicted windows are sorted by confidence
+    _submission_vstack = []
+    for _s in _submission:
+        _submission_vstack.extend(_s['pred_relevant_windows'])
+    _submission = sorted(_submission_vstack, key=lambda x: x[2], reverse=True)
+    _submission = [{'qid': _ground_truth[0]['qid'],
+                    'pred_relevant_windows': _submission}]
+
+    return _submission, _ground_truth
+
+
 def eval_moment_retrieval(submission, ground_truth, verbose=True, is_nms=False,
                           is_long_nlq=False, length_ranges=[[0, 10], [10, 20], [20, 30], [0, 200], ],
-                          range_names=["short", "middle", "long", "full"]):
+                          range_names=["short", "middle", "long", "full"],
+                          iou_thds=[0.1, 0.3, 0.5], top_ks=[1, 2, 5, 10]):
+
     range_names = [f'{d}_{length_ranges[idx][0]}_{length_ranges[idx][1]}' if d != 'full' else 'full' for idx, d in
                    enumerate(range_names)]
 
@@ -210,10 +231,7 @@ def eval_moment_retrieval(submission, ground_truth, verbose=True, is_nms=False,
         cls_acc, cls_recall, cls_precision = compute_ret_metrics(_submission, _ground_truth)
 
         if is_long_nlq:
-            pred_proba = torch.tensor([s['pred_cls'] for s in submission]).sigmoid()
-            predicted_foreground_idx = (torch.where(pred_proba > 0.5)[0]).cpu()
-            _submission = [submission[i] for i in predicted_foreground_idx]
-            _ground_truth = [ground_truth[i] for i in predicted_foreground_idx]
+            _submission, _ground_truth = sort_pos_predicted(_submission, _ground_truth)
 
         if len(_submission) != 0:
             if verbose:
@@ -223,7 +241,9 @@ def eval_moment_retrieval(submission, ground_truth, verbose=True, is_nms=False,
             iou_thd2average_precision = compute_mr_ap(_submission, _ground_truth, num_workers=8, chunksize=50)
             iou_thd2recall_at_k = compute_mr_rk(submission=_submission,
                                                 ground_truth=_ground_truth,
-                                                is_nms=is_nms)
+                                                is_nms=is_nms,
+                                                iou_thds=iou_thds,
+                                                top_ks=top_ks)
 
             if verbose:
                 print(f"[eval_moment_retrieval] [{name}] {time.time() - start_time:.2f} seconds")
@@ -265,15 +285,19 @@ def compute_ret_metrics(_submission, _ground_truth):
     if foreground_idx.shape[0] == 0:
         return 0, 0, 0
 
-    binary_recall = BinaryRecall()
-    binary_precision = BinaryPrecision()
-    binary_accuracy = BinaryAccuracy()
-
     preds = torch.tensor([s['pred_cls'] for s in _submission]).squeeze()[foreground_idx]
-    targets = torch.tensor([int(gt['is_foreground']) for gt in _ground_truth])[foreground_idx]
+    preds = torch.sigmoid(preds)
+    # we are only evaluating foreground windows
+    targets = torch.ones_like(preds)
 
-    return float(binary_accuracy(preds, targets)), float(binary_recall(preds, targets)), float(
-        binary_precision(preds, targets))
+    binary_accuracy = BinaryAccuracy()
+    accuracy = binary_accuracy(preds, targets)
+    binary_recall = BinaryRecall()
+    recall = binary_recall(preds, targets)
+    binary_precision = BinaryPrecision()
+    precision = binary_precision(preds, targets)
+
+    return float(accuracy), float(recall), float(precision)
 
 
 def compute_hl_hit1(qid2preds, qid2gt_scores_binary):
@@ -373,7 +397,8 @@ def eval_highlight(submission, ground_truth, verbose=True):
 
 def eval_submission(submission, ground_truth, verbose=True, match_number=False, is_nms=False,
                     is_long_nlq=False, length_ranges=[[0, 10], [10, 20], [20, 30], [0, 200], ],
-                    range_names=["short", "middle", "long", "full"]):
+                    range_names=["short", "middle", "long", "full"],
+                    iou_thds=[0.1, 0.3, 0.5], top_ks=[1, 2, 5, 10]):
     """
     Args:
         submission: list(dict), each dict is {
@@ -421,7 +446,8 @@ def eval_submission(submission, ground_truth, verbose=True, match_number=False, 
     if "pred_relevant_windows" in submission[0]:
         moment_ret_scores = eval_moment_retrieval(
             submission, ground_truth, verbose=verbose, is_nms=is_nms,
-            is_long_nlq=is_long_nlq, length_ranges=length_ranges, range_names=range_names)
+            is_long_nlq=is_long_nlq, length_ranges=length_ranges, range_names=range_names,
+            iou_thds=iou_thds, top_ks=top_ks)
 
         eval_metrics.update(moment_ret_scores)
         if is_nms:
