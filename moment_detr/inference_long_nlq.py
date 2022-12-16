@@ -47,7 +47,7 @@ def start_inference_long_nlq():
             collate_fn=collate_fn,
             batch_size=10,
             num_workers=10,
-            shuffle=False,
+            shuffle=True,
             pin_memory=opt.pin_memory
         )
         preds, metrics = {}, {}
@@ -93,7 +93,7 @@ def start_inference_long_nlq():
                                                   range_names=['full'],
                                                   is_nms=True,
                                                   iou_thds=[0.1, 0.3, 0.5],
-                                                  top_ks=[1, 2, 5, 10, 50, 100])
+                                                  top_ks=[1, 5, 10, 50, 100])
 
                 if opt.debug:
                     break
@@ -129,7 +129,7 @@ def eval_postprocessing(metrics, preds, opt, save_submission_filename):
     submission_path = os.path.join(opt.results_dir, save_submission_filename)
     save_metrics_path = submission_path.replace(".jsonl", "_metrics.json")
     save_json(avg_metrics, save_metrics_path, save_pretty=True, sort_keys=False)
-    preds = {key: {'pred_spans': np.array(preds[key]['pred_spans'].cpu()).tolist(),
+    preds = {key: {'pred_spans': preds[key]['pred_spans'],
                    'pred_cls': np.array(preds[key]['pred_cls'].cpu()).tolist()} for key in preds.keys()}
     save_jsonl(preds, submission_path)
 

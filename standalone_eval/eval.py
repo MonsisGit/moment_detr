@@ -65,6 +65,8 @@ def compute_mr_ap(submission, ground_truth, iou_thds=np.linspace(0.5, 0.95, 10),
 
     # print(f"compute_average_precision_detection {time.time() - start_time:.2f} seconds.")
     ap_array = np.array(list(qid2ap_list.values()))  # (#queries, #thd)
+    if ap_array.shape[1] == 0:
+        return {'average': -1}
     ap_thds = ap_array.mean(0)  # mAP at different IoU thresholds.
     iou_thd2ap = dict(zip([str(e) for e in iou_thds], ap_thds))
     iou_thd2ap["average"] = np.mean(ap_thds)
@@ -81,8 +83,7 @@ def compute_mr_rk(submission, ground_truth, iou_thds=[0.1, 0.3, 0.5], top_ks=[1,
     iou_thd2recall_at_k = {}
     for top_k in top_ks:
         for s in submission:
-            pred_qid2window[s["qid"]] = [k[0:2] for k in s["pred_relevant_windows"][0:top_k] if
-                                         k[0:2] != [0, 0]]  # :2 rm scores
+            pred_qid2window[s["qid"]] = [k[0:2] for k in s["pred_relevant_windows"][0:top_k]]  # :2 rm scores
 
         iou_thd2recall_at_d = []
         for d in ground_truth:
@@ -214,15 +215,26 @@ def sort_pos_predicted(submission, ground_truth):
     return _submission, _ground_truth
 
 
+def remove_zero_predictions(submission, ground_truth):
+    for idx, s in enumerate(submission):
+        pred_relevant_windows_wo_zeros = [_s for _s in s['pred_relevant_windows'] if _s[0:2] != [0, 0]]
+        submission[idx]['pred_relevant_windows'] = pred_relevant_windows_wo_zeros
+        if len(submission[idx]['pred_relevant_windows']) == 0:
+            del submission[idx]
+            del ground_truth[idx]
+    return submission, ground_truth
+
+
 def eval_moment_retrieval(submission, ground_truth, verbose=True, is_nms=False,
                           is_long_nlq=False, length_ranges=[[0, 10], [10, 20], [20, 30], [0, 200], ],
                           range_names=["short", "middle", "long", "full"],
                           iou_thds=[0.1, 0.3, 0.5], top_ks=[1, 2, 5, 10]):
-
     range_names = [f'{d}_{length_ranges[idx][0]}_{length_ranges[idx][1]}' if d != 'full' else 'full' for idx, d in
                    enumerate(range_names)]
 
     ret_metrics = {}
+    submission, ground_truth = remove_zero_predictions(submission, ground_truth)
+
     for l_range, name in zip(length_ranges, range_names):
         if verbose:
             start_time = time.time()
