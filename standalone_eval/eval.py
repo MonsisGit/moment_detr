@@ -293,19 +293,19 @@ def eval_moment_retrieval(submission, ground_truth, verbose=True, is_nms=False,
 
 
 def compute_ret_metrics(_submission, _ground_truth):
-    foreground_idx = torch.where(torch.tensor([_gt['is_foreground'] for _gt in _ground_truth]) == True)[0]
-    if foreground_idx.shape[0] == 0:
-        return 0, 0, 0
 
-    preds = torch.tensor([s['pred_cls'] for s in _submission]).squeeze()[foreground_idx]
-    preds = torch.sigmoid(preds)
-    # we are only evaluating foreground windows
-    targets = torch.ones_like(preds)
+    preds = torch.tensor([s['pred_cls'] for s in _submission]).squeeze()
+    targets = torch.tensor([int(gt['is_foreground']) for gt in _ground_truth])
 
+    # accuracy might be high, because of unbalanced data
     binary_accuracy = BinaryAccuracy()
     accuracy = binary_accuracy(preds, targets)
+    # recall is TP / (TP + FN), it evaluates the completeness of the positive predictions
+    # only foreground windows are considered
     binary_recall = BinaryRecall()
     recall = binary_recall(preds, targets)
+    #precision is TP / (TP + FP), it evaluates the correctness of the positive predictions
+    # background windows are also considered
     binary_precision = BinaryPrecision()
     precision = binary_precision(preds, targets)
 

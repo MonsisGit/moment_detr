@@ -23,7 +23,7 @@ t_feat_dim=768
 device=0
 sampling_fps=5
 nms_thd=0.3
-data_ratio=0.005
+data_ratio=0.01
 
 PYTHONPATH=$PYTHONPATH:. python moment_detr/inference.py \
   --dset_name ${dset_name} \
