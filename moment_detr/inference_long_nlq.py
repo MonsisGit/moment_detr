@@ -65,9 +65,11 @@ def start_inference_long_nlq():
 
                 prob = F.softmax(outputs["pred_logits"], -1)[..., 0, None]
                 pred_spans = span_cxw_to_xx(outputs["pred_spans"]) * _target['anno']['movie_duration']
+                pred_spans = torch.cat([pred_spans, prob], dim=2).tolist()
+                ranked_preds = [sorted(_s, key=lambda x: x[2], reverse=True) for _s in pred_spans]
 
                 preds[qid[i]] = {
-                    'pred_spans': torch.cat([pred_spans, prob], dim=2),
+                    'pred_spans': ranked_preds,
                     'pred_cls': outputs['pred_cls'][:, 0]}
 
                 _pred = preds[qid[i]]
@@ -80,7 +82,7 @@ def start_inference_long_nlq():
                                  _target['is_foreground']]
 
                 _submission = [{'qid': qid[i],
-                                'pred_relevant_windows': _span.tolist(),
+                                'pred_relevant_windows': _span,
                                 'pred_cls': [float(_pred['pred_cls'][idx, 0])]} for idx, _span in
                                enumerate(_pred['pred_spans'])]
 
@@ -128,6 +130,11 @@ def eval_postprocessing(metrics, preds, opt, save_submission_filename):
     preds = {key: {'pred_spans': np.array(preds[key]['pred_spans'].cpu()).tolist(),
                    'pred_cls': np.array(preds[key]['pred_cls'].cpu()).tolist()} for key in preds.keys()}
     save_jsonl(preds, submission_path)
+
+    
+
+
+
 
 
 if __name__ == '__main__':
