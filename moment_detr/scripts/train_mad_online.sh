@@ -45,7 +45,7 @@ lw_cls=4
 window_length=30
 sampling_mode=online
 sampling_fps=5
-eval_results_dir=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_dr${data_ratio}_wl${window_length}_fps${sampling_fps}_lws${lw_saliency}_lloss${label_loss_coef}_closs${lw_cls}_ret_tok_prop_decoder_gating
+eval_results_dir=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_dr${data_ratio}_wl${window_length}_fps${sampling_fps}_lws${lw_saliency}_lloss${label_loss_coef}_closs${lw_cls}_decoder_gating
 
 #resume
 resume=${root}momentDETR_results/${eval_results_dir}/model_best.ckpt
@@ -96,6 +96,5 @@ PYTHONPATH=$PYTHONPATH:. python moment_detr/train.py \
 --max_after_nms ${num_queries} \
 --lw_cls ${lw_cls} \
 --ret_tok \
---ret_tok_prop \
---decoder_gating
+--decoder_gating \
 ${@:1}

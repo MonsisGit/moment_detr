@@ -21,7 +21,7 @@ class Transformer(nn.Module):
     def __init__(self, d_model=512, nhead=8, num_encoder_layers=6,
                  num_decoder_layers=6, dim_feedforward=2048, dropout=0.1,
                  activation="relu", normalize_before=False,
-                 return_intermediate_dec=False, ret_tok_prop=False,decoder_gating=False):
+                 return_intermediate_dec=False, ret_tok_prop=False,decoder_gating=False,detach_decoder_gating=False):
         super().__init__()
 
         # TransformerEncoderLayerThin
@@ -48,6 +48,7 @@ class Transformer(nn.Module):
 
         self.d_model = d_model
         self.nhead = nhead
+        self.detach_decoder_gating=detach_decoder_gating
 
 
     def _reset_parameters(self):
@@ -91,7 +92,11 @@ class Transformer(nn.Module):
                           pos=pos_embed[:-1], query_pos=query_embed)  # (#layers, #queries, batch_size, d)
         hs = hs.transpose(1, 2)  # (#layers, batch_size, #qeries, d)
         if self.decoder_gating:
-            hs *= d.detach()[None,:,:,None]
+            if self.detach_decoder_gating:
+                hs *= d.detach()[None,:,:,None]
+            else:
+                hs *= d[None,:,:,None]
+
         # memory = memory.permute(1, 2, 0)  # (batch_size, d, L)
         memory = memory.transpose(0, 1)  # (batch_size, L, d)
         return hs, memory, d
@@ -482,7 +487,8 @@ def build_transformer(args):
         normalize_before=args.pre_norm,
         return_intermediate_dec=True,
         ret_tok_prop=args.ret_tok_prop,
-        decoder_gating=args.decoder_gating
+        decoder_gating=args.decoder_gating,
+        detach_decoder_gating=args.detach_decoder_gating
     )
 
 

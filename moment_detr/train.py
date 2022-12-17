@@ -79,13 +79,13 @@ def train_epoch(model, criterion, train_loader, optimizer, opt, epoch_i, tb_writ
                                  total=num_training_examples):
         if batch_idx % 100 == 1:
             temp = np.maximum(temp * np.exp(-opt.annealing_rate * (batch_idx+len(train_loader)*epoch_i)), opt.min_temp)
-            logger.info("epoch:",epoch_i,"batch:",batch_idx,"temp:",temp)
+            # logger.info("epoch:",epoch_i,"batch:",batch_idx,"temp:",temp)
         time_meters["dataloading_time"].update(time.time() - timer_dataloading)
 
         timer_start = time.time()
         model_inputs, targets = prepare_batch_inputs(batch[1], opt.device, non_blocking=opt.pin_memory)
         time_meters["prepare_inputs_time"].update(time.time() - timer_start)
-        model_inputs['tmp'] = opt.max_temp
+        model_inputs['tmp'] = temp
         timer_start = time.time()
         outputs = model(**model_inputs)
         loss_dict = criterion(outputs, targets)

@@ -170,6 +170,8 @@ class BaseOptions(object):
         parser.add_argument("--annealing_rate", type=float, default=0.00003, help="for gumbel softmax")
         parser.add_argument("--max_temp", type=float, default=1.0, help="for gumbel softmax")
         parser.add_argument("--min_temp", type=float, default=1.0, help="for gumbel softmax")
+        parser.add_argument("--detach_decoder_gating", action="store_true", help="stop gradient gate the decoder")
+
         self.parser = parser
 
     def display_save(self, opt):
