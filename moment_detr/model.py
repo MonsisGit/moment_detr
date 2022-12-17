@@ -23,7 +23,7 @@ class MomentDETR(nn.Module):
     def __init__(self, transformer, position_embed, txt_position_embed, txt_dim, vid_dim,
                  num_queries, input_dropout, aux_loss=False,
                  contrastive_align_loss=False, contrastive_hdim=64,
-                 max_v_l=75, span_loss_type="l1", use_txt_pos=False, n_input_proj=2, use_ret_tok=False):
+                 max_v_l=75, span_loss_type="l1", use_txt_pos=False, n_input_proj=2, use_ret_tok=False,decoder_gating=False):
         """ Initializes the model.
         Parameters:
             transformer: torch module of the transformer architecture. See transformer.py
@@ -89,10 +89,11 @@ class MomentDETR(nn.Module):
 
         self.saliency_proj = nn.Linear(hidden_dim, 1)
         self.aux_loss = aux_loss
+        self.decoder_gating=decoder_gating
 
 
 
-    def forward(self, src_txt, src_txt_mask, src_vid, src_vid_mask):
+    def forward(self, src_txt, src_txt_mask, src_vid, src_vid_mask, tmp=1.0):
         """The forward expects two tensors:
                - src_txt: [batch_size, L_txt, D_txt]
                - src_txt_mask: [batch_size, L_txt], containing 0 on padded pixels,
@@ -117,7 +118,6 @@ class MomentDETR(nn.Module):
         if self.use_ret_tok:
             ret_token = self.ret_token.expand(bs, -1, -1).to(src_txt.device)
             ret_mask = torch.ones(size=(bs, 1)).to(src_txt.device)
-
             src_txt = torch.cat([src_txt, ret_token], dim=1)  # (bsz, cls+L_vid+L_txt, d)
             src_txt_mask = torch.cat([src_txt_mask, ret_mask], dim=1)
 
@@ -132,7 +132,7 @@ class MomentDETR(nn.Module):
         pos = torch.cat([pos_vid, pos_txt], dim=1)
         # (#layers, bsz, #queries, d), (bsz, L_vid+L_txt, d)
         # TODO remove cls from decoder part
-        hs, memory = self.transformer(src, ~mask, self.query_embed.weight, pos)
+        hs, memory, d = self.transformer(src, ~mask, self.query_embed.weight, pos, tmp)
         outputs_class = self.class_embed(hs)  # (#layers, batch_size, #queries, #classes)
         outputs_coord = self.span_embed(hs)  # (#layers, bsz, #queries, 2 or max_v_l * 2)
         if self.span_loss_type == "l1":
@@ -149,7 +149,7 @@ class MomentDETR(nn.Module):
 
         out = {'pred_logits': outputs_class[-1],
                'pred_spans': outputs_coord[-1],
-               'pred_cls': outputs_ret if self.use_ret_tok else None}
+               'pred_cls': d if self.decoder_gating else (outputs_ret if self.use_ret_tok else None)}
 
         if self.contrastive_align_loss: #TODO: Check if we can use it
             proj_queries = F.normalize(self.contrastive_align_projection_query(hs), p=2, dim=-1)
@@ -268,7 +268,7 @@ class SetCriterion(nn.Module):
         target_classes = torch.full(src_logits.shape[:2], self.background_label,
                                     dtype=torch.int64, device=src_logits.device)  # (batch_size, #queries)
         target_classes[idx] = self.foreground_label
-
+        #TODO: use focal loss for class imbalance
         loss_ce = F.cross_entropy(src_logits.transpose(1, 2), target_classes, self.empty_weight, reduction="none")
         losses = {'loss_label': loss_ce.mean()}
 
@@ -486,6 +486,7 @@ def build_model(args):
         use_txt_pos=args.use_txt_pos,
         n_input_proj=args.n_input_proj,
         use_ret_tok=args.ret_tok,
+        decoder_gating=args.decoder_gating
     )
 
     matcher = build_matcher(args)

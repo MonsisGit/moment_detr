@@ -19,7 +19,7 @@ eval_split_name=val
 v_feat_dim=768
 t_feat_dim=768
 bsz=256
-cuda_visible_devices=2
+cuda_visible_devices=0
 data_ratio=1
 num_workers=8
 n_epoch=100
@@ -45,7 +45,7 @@ lw_cls=4
 window_length=30
 sampling_mode=online
 sampling_fps=5
-eval_results_dir=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_dr${data_ratio}_wl${window_length}_fps${sampling_fps}_lws${lw_saliency}_lloss${label_loss_coef}_closs${lw_cls}
+eval_results_dir=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_dr${data_ratio}_wl${window_length}_fps${sampling_fps}_lws${lw_saliency}_lloss${label_loss_coef}_closs${lw_cls}_ret_tok_prop_decoder_gating
 
 #resume
 resume=${root}momentDETR_results/${eval_results_dir}/model_best.ckpt
@@ -94,5 +94,8 @@ PYTHONPATH=$PYTHONPATH:. python moment_detr/train.py \
 --num_queries ${num_queries} \
 --max_before_nms ${num_queries} \
 --max_after_nms ${num_queries} \
---lw_cls ${lw_cls}
+--lw_cls ${lw_cls} \
+--ret_tok \
+--ret_tok_prop \
+--decoder_gating
 ${@:1}

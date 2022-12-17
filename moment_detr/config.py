@@ -166,8 +166,10 @@ class BaseOptions(object):
                             help="dont shuffle training data")
         parser.add_argument("--ret_tok", action="store_true", help="use ret tok in encoder")
         parser.add_argument("--ret_tok_prop", action="store_true", help="use ret tok in decoder")
-        parser.add_argument("--gumbel_softmax", action="store_true", help="use hard binary classification retrieval")
-
+        parser.add_argument("--decoder_gating", action="store_true", help="use gumbel softmax to gate the decoder")
+        parser.add_argument("--annealing_rate", type=float, default=0.00003, help="for gumbel softmax")
+        parser.add_argument("--max_temp", type=float, default=1.0, help="for gumbel softmax")
+        parser.add_argument("--min_temp", type=float, default=1.0, help="for gumbel softmax")
         self.parser = parser
 
     def display_save(self, opt):
