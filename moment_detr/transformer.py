@@ -24,15 +24,20 @@ class Transformer(nn.Module):
                  activation="relu", normalize_before=False,
                  return_intermediate_dec=False, ret_tok_prop=False,
                  decoder_gating=False,detach_decoder_gating=False,
-                 decoder_gating_feature="all", video_only_decoder=False):
+                 decoder_gating_feature="all", video_only_decoder=False,decoupled_attn=False):
         super().__init__()
 
         # TransformerEncoderLayerThin
+        self.decoupled_attn=decoupled_attn
         encoder_layer = TransformerEncoderLayer(d_model, nhead, dim_feedforward,
                                                 dropout, activation, normalize_before)
         encoder_norm = nn.LayerNorm(d_model) if normalize_before else None
         self.encoder = TransformerEncoder(encoder_layer, num_encoder_layers, encoder_norm)
-
+        if decoupled_attn:
+            encoder_layer2 = TransformerEncoderLayer(d_model, nhead, dim_feedforward,
+                                                    dropout, activation, normalize_before)
+            encoder_norm2 = nn.LayerNorm(d_model) if normalize_before else None
+            self.encoder2 = TransformerEncoder(encoder_layer2, num_encoder_layers, encoder_norm2)
         self.ret_tok_prop=ret_tok_prop
         if ret_tok_prop or video_only_decoder:
             self.ret_prop_embed = nn.Linear(d_model, d_model)
@@ -47,6 +52,12 @@ class Transformer(nn.Module):
         decoder_norm = nn.LayerNorm(d_model)
         self.decoder = TransformerDecoder(decoder_layer, num_decoder_layers, decoder_norm,
                                           return_intermediate=return_intermediate_dec)
+        if decoupled_attn:
+            decoder_layer2 = TransformerDecoderLayer(d_model, nhead, dim_feedforward,
+                                                    dropout, activation, normalize_before)
+            decoder_norm2 = nn.LayerNorm(d_model)
+            self.decoder2 = TransformerDecoder(decoder_layer2, num_decoder_layers, decoder_norm2,
+                                              return_intermediate=return_intermediate_dec)
 
         self._reset_parameters()
 
@@ -82,8 +93,12 @@ class Transformer(nn.Module):
         pos_embed = pos_embed.permute(1, 0, 2)   # (L, batch_size, d)
         query_embed = query_embed.unsqueeze(1).repeat(1, bs, 1)  # (#queries, batch_size, d)
 
-
-        memory = self.encoder(src, src_key_padding_mask=mask, pos=pos_embed)  # (L, batch_size, d)
+        if self.decoupled_attn:
+            memory1 = self.encoder(src[:frames], src_key_padding_mask=mask[:frames], pos=pos_embed[:frames])  # (L, batch_size, d)
+            memory2 = self.encoder2(src[frames:], src_key_padding_mask=mask[frames:], pos=pos_embed[frames])  # (L, batch_size, d)
+            memory = torch.cat([memory1, memory2], dim=1)
+        else:
+            memory = self.encoder(src, src_key_padding_mask=mask, pos=pos_embed)  # (L, batch_size, d)
 
         if self.decoder_gating:
             # d = F.gumbel_softmax(self.dec_gate_embed(memory[-1]), hard=not self.training, tau=tmp)
@@ -105,7 +120,8 @@ class Transformer(nn.Module):
         else:
             tgt = torch.zeros_like(query_embed)
 
-        #remove cls token from encoder output
+
+            #remove cls token from encoder output
         #decoder_memory = memory[1:]
         #pos_embed = pos_embed[1:]
         #mask = mask[:,1:]
@@ -116,6 +132,11 @@ class Transformer(nn.Module):
         elif self.video_only_decoder:
             hs = self.decoder(tgt, memory[:frames], memory_key_padding_mask=mask[:, :frames],
                               pos=pos_embed[:frames], query_pos=query_embed)  # (#layers, #queries, batch_size, d)
+        elif self.decoupled_attn:
+            tgt = self.decoder(tgt, memory[frames:], memory_key_padding_mask=mask[frames:],
+                              pos=pos_embed[frames:], query_pos=query_embed)
+            hs = self.decoder2(tgt, memory[:frames], memory_key_padding_mask=mask[:frames],
+                               pos=pos_embed[:frames], query_pos=query_embed)
         else:
             hs = self.decoder(tgt, memory, memory_key_padding_mask=mask,
                               pos=pos_embed, query_pos=query_embed)  # (#layers, #queries, batch_size, d)
@@ -519,7 +540,8 @@ def build_transformer(args):
         decoder_gating=args.decoder_gating,
         detach_decoder_gating=args.detach_decoder_gating,
         decoder_gating_feature=args.decoder_gating_feature,
-        video_only_decoder=args.video_only_decoder
+        video_only_decoder=args.video_only_decoder,
+        decoupled_attn=args.decoupled_attn
     )
 
 def _get_activation_fn(activation):

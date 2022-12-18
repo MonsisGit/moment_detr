@@ -45,7 +45,7 @@ window_length=30
 sampling_mode=online
 sampling_fps=5
 decoder_gating_feature=text
-eval_results_dir=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_dr${data_ratio}_wl${window_length}_fps${sampling_fps}_lws${lw_saliency}_lloss${label_loss_coef}_closs${lw_cls}_no_ret_tok_detach_decoder_gating_${decoder_gating_feature}
+eval_results_dir=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_dr${data_ratio}_wl${window_length}_fps${sampling_fps}_lws${lw_saliency}_lloss${label_loss_coef}_closs${lw_cls}_no_ret_tok_detach_decoder_gating_${decoder_gating_feature}_decoupled_attn
 #resume
 resume=${root}momentDETR_results/${eval_results_dir}/model_best.ckpt
 
@@ -96,7 +96,6 @@ PYTHONPATH=$PYTHONPATH:. python moment_detr/train.py \
 --lw_cls ${lw_cls} \
 --decoder_gating \
 --decoder_gating_feature ${decoder_gating_feature} \
---resume ${resume} \
---resume_all \
 --detach_decoder_gating \
+--decoupled_attn
 ${@:1}

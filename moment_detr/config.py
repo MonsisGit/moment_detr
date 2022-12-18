@@ -174,6 +174,7 @@ class BaseOptions(object):
         parser.add_argument("--decoder_gating_feature", type=str, default="all",
                             choices=["all", "video", "text", "ret_tok"])
         parser.add_argument("--video_only_decoder", action="store_true", help="video as keys, queries from text pooling")
+        parser.add_argument("--decoupled_attn", action="store_true", help="separate attn for video and text")
         self.parser = parser
 
     def display_save(self, opt):
