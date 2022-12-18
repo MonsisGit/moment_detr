@@ -23,7 +23,8 @@ class Transformer(nn.Module):
                  num_decoder_layers=6, dim_feedforward=2048, dropout=0.1,
                  activation="relu", normalize_before=False,
                  return_intermediate_dec=False, ret_tok_prop=False,
-                 decoder_gating=False,detach_decoder_gating=False, decoder_gating_feature="all"):
+                 decoder_gating=False,detach_decoder_gating=False,
+                 decoder_gating_feature="all", video_only_decoder=False):
         super().__init__()
 
         # TransformerEncoderLayerThin
@@ -33,7 +34,7 @@ class Transformer(nn.Module):
         self.encoder = TransformerEncoder(encoder_layer, num_encoder_layers, encoder_norm)
 
         self.ret_tok_prop=ret_tok_prop
-        if ret_tok_prop:
+        if ret_tok_prop or video_only_decoder:
             self.ret_prop_embed = nn.Linear(d_model, d_model)
         self.decoder_gating=decoder_gating
         if decoder_gating:
@@ -53,6 +54,9 @@ class Transformer(nn.Module):
         self.nhead = nhead
         self.detach_decoder_gating=detach_decoder_gating
         self.decoder_gating_feature=decoder_gating_feature
+        self.video_only_decoder=video_only_decoder
+        if video_only_decoder:
+            self.avg_pool = nn.AdaptiveAvgPool1d(1)
 
 
     def _reset_parameters(self):
@@ -93,8 +97,13 @@ class Transformer(nn.Module):
             else:
                 mask_c, prob_soft = self.mask_c(memory.permute(1, 2, 0))
 
-        tgt = self.ret_prop_embed(memory[-1])[None].repeat((query_embed.shape[0], 1, 1)) \
-            if self.ret_tok_prop else torch.zeros_like(query_embed)
+        if self.video_only_decoder:
+            context = self.avg_pool(memory[frames:].permute(1, 2, 0))
+            tgt = self.ret_prop_embed(context[None,:,:,0]).repeat((query_embed.shape[0], 1, 1))
+        elif self.ret_tok_prop:
+            tgt = self.ret_prop_embed(memory[-1])[None].repeat((query_embed.shape[0], 1, 1))
+        else:
+            tgt = torch.zeros_like(query_embed)
 
         #remove cls token from encoder output
         #decoder_memory = memory[1:]
@@ -104,6 +113,9 @@ class Transformer(nn.Module):
         if self.ret_tok_prop:
             hs = self.decoder(tgt, memory[:-1], memory_key_padding_mask=mask[:,:-1],
                               pos=pos_embed[:-1], query_pos=query_embed)  # (#layers, #queries, batch_size, d)
+        elif self.video_only_decoder:
+            hs = self.decoder(tgt, memory[:frames], memory_key_padding_mask=mask[:, :frames],
+                              pos=pos_embed[:frames], query_pos=query_embed)  # (#layers, #queries, batch_size, d)
         else:
             hs = self.decoder(tgt, memory, memory_key_padding_mask=mask,
                               pos=pos_embed, query_pos=query_embed)  # (#layers, #queries, batch_size, d)
@@ -506,7 +518,8 @@ def build_transformer(args):
         ret_tok_prop=args.ret_tok_prop,
         decoder_gating=args.decoder_gating,
         detach_decoder_gating=args.detach_decoder_gating,
-        decoder_gating_feature=args.decoder_gating_feature
+        decoder_gating_feature=args.decoder_gating_feature,
+        video_only_decoder=args.video_only_decoder
     )
 
 def _get_activation_fn(activation):

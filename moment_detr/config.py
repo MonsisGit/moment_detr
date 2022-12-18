@@ -173,7 +173,7 @@ class BaseOptions(object):
         parser.add_argument("--detach_decoder_gating", action="store_true", help="stop gradient gate the decoder")
         parser.add_argument("--decoder_gating_feature", type=str, default="all",
                             choices=["all", "video", "text", "ret_tok"])
-
+        parser.add_argument("--video_only_decoder", action="store_true", help="video as keys, queries from text pooling")
         self.parser = parser
 
     def display_save(self, opt):
