@@ -33,11 +33,11 @@ class Transformer(nn.Module):
                                                 dropout, activation, normalize_before)
         encoder_norm = nn.LayerNorm(d_model) if normalize_before else None
         self.encoder = TransformerEncoder(encoder_layer, num_encoder_layers, encoder_norm)
-        if decoupled_attn:
-            encoder_layer2 = TransformerEncoderLayer(d_model, nhead, dim_feedforward,
-                                                    dropout, activation, normalize_before)
-            encoder_norm2 = nn.LayerNorm(d_model) if normalize_before else None
-            self.encoder2 = TransformerEncoder(encoder_layer2, num_encoder_layers, encoder_norm2)
+        # if decoupled_attn:
+        #     encoder_layer2 = TransformerEncoderLayer(d_model, nhead, dim_feedforward,
+        #                                             dropout, activation, normalize_before)
+        #     encoder_norm2 = nn.LayerNorm(d_model) if normalize_before else None
+        #     self.encoder2 = TransformerEncoder(encoder_layer2, num_encoder_layers, encoder_norm2)
         self.ret_tok_prop=ret_tok_prop
         if ret_tok_prop or video_only_decoder:
             self.ret_prop_embed = nn.Linear(d_model, d_model)
@@ -93,12 +93,12 @@ class Transformer(nn.Module):
         pos_embed = pos_embed.permute(1, 0, 2)   # (L, batch_size, d)
         query_embed = query_embed.unsqueeze(1).repeat(1, bs, 1)  # (#queries, batch_size, d)
 
-        if self.decoupled_attn:
-            memory1 = self.encoder(src[:frames], src_key_padding_mask=mask[:frames], pos=pos_embed[:frames])  # (L, batch_size, d)
-            memory2 = self.encoder2(src[frames:], src_key_padding_mask=mask[frames:], pos=pos_embed[frames])  # (L, batch_size, d)
-            memory = torch.cat([memory1, memory2], dim=1)
-        else:
-            memory = self.encoder(src, src_key_padding_mask=mask, pos=pos_embed)  # (L, batch_size, d)
+        # if self.decoupled_attn:
+        #     memory1 = self.encoder(src[:frames], src_key_padding_mask=mask[:,:frames], pos=pos_embed[:frames])  # (L, batch_size, d)
+        #     memory2 = self.encoder2(src[frames:], src_key_padding_mask=mask[:,frames:], pos=pos_embed[frames])  # (L, batch_size, d)
+        #     memory = torch.cat([memory1, memory2], dim=0)
+        # else:
+        memory = self.encoder(src, src_key_padding_mask=mask, pos=pos_embed)  # (L, batch_size, d)
 
         if self.decoder_gating:
             # d = F.gumbel_softmax(self.dec_gate_embed(memory[-1]), hard=not self.training, tau=tmp)
@@ -133,9 +133,9 @@ class Transformer(nn.Module):
             hs = self.decoder(tgt, memory[:frames], memory_key_padding_mask=mask[:, :frames],
                               pos=pos_embed[:frames], query_pos=query_embed)  # (#layers, #queries, batch_size, d)
         elif self.decoupled_attn:
-            tgt = self.decoder(tgt, memory[frames:], memory_key_padding_mask=mask[frames:],
+            tgt = self.decoder(tgt, memory[frames:], memory_key_padding_mask=mask[:,frames:],
                               pos=pos_embed[frames:], query_pos=query_embed)
-            hs = self.decoder2(tgt, memory[:frames], memory_key_padding_mask=mask[:frames],
+            hs = self.decoder2(tgt[-1], memory[:frames], memory_key_padding_mask=mask[:,:frames],
                                pos=pos_embed[:frames], query_pos=query_embed)
         else:
             hs = self.decoder(tgt, memory, memory_key_padding_mask=mask,
