@@ -55,9 +55,11 @@ class MomentDETR(nn.Module):
         self.span_embed = MLP(hidden_dim, hidden_dim, span_pred_dim, 3)
         self.class_embed = nn.Linear(hidden_dim, 2)  # 0: background, 1: foreground
         self.use_ret_tok=use_ret_tok
+        self.decoder_gating = decoder_gating
         if use_ret_tok:
-            self.ret_embed = MLP(hidden_dim, hidden_dim, 1, 3)
             self.ret_token = nn.Parameter(torch.zeros(1, 1, hidden_dim)) # 0: background, 1: foreground
+            if not self.decoder_gating:
+                self.ret_embed = MLP(hidden_dim, hidden_dim, 1, 3)
         self.use_txt_pos = use_txt_pos
         self.n_input_proj = n_input_proj
         # self.foreground_thd = foreground_thd
@@ -89,8 +91,6 @@ class MomentDETR(nn.Module):
 
         self.saliency_proj = nn.Linear(hidden_dim, 1)
         self.aux_loss = aux_loss
-        self.decoder_gating=decoder_gating
-
 
 
     def forward(self, src_txt, src_txt_mask, src_vid, src_vid_mask, tmp=1.0):
@@ -110,7 +110,7 @@ class MomentDETR(nn.Module):
                - "aux_outputs": Optional, only returned when auxilary losses are activated. It is a list of
                                 dictionnaries containing the two above keys for each decoder layer.
         """
-        bs = src_vid.shape[0]
+        bs, frames, _ = src_vid.shape
         src_vid = self.input_vid_proj(src_vid)
         src_txt = self.input_txt_proj(src_txt)
 
@@ -132,7 +132,7 @@ class MomentDETR(nn.Module):
         pos = torch.cat([pos_vid, pos_txt], dim=1)
         # (#layers, bsz, #queries, d), (bsz, L_vid+L_txt, d)
         # TODO remove cls from decoder part
-        hs, memory, d = self.transformer(src, ~mask, self.query_embed.weight, pos, tmp)
+        hs, memory, prob_soft = self.transformer(src, ~mask, self.query_embed.weight, pos, frames)
         outputs_class = self.class_embed(hs)  # (#layers, batch_size, #queries, #classes)
         outputs_coord = self.span_embed(hs)  # (#layers, bsz, #queries, 2 or max_v_l * 2)
         if self.span_loss_type == "l1":
@@ -142,14 +142,16 @@ class MomentDETR(nn.Module):
             txt_mem = memory[:, src_vid.shape[1]:-1]  # (bsz, L_txt, d)
             vid_mem = memory[:, :src_vid.shape[1]]  # (bsz, L_vid, d)
             ret_mem = memory[:, None, -1]  # bsz, 1, d
-            outputs_ret = self.ret_embed(ret_mem)
+            if not self.decoder_gating:
+                outputs_ret = self.ret_embed(ret_mem)
         else:
             txt_mem = memory[:, src_vid.shape[1]:]  # (bsz, L_txt, d)
             vid_mem = memory[:, :src_vid.shape[1]]
 
         out = {'pred_logits': outputs_class[-1],
                'pred_spans': outputs_coord[-1],
-               'pred_cls': d if self.decoder_gating else (outputs_ret if self.use_ret_tok else None)}
+               #TODO: try hard_prob=mask_c
+               'pred_cls': prob_soft if self.decoder_gating else (outputs_ret if self.use_ret_tok else None)}
 
         if self.contrastive_align_loss: #TODO: Check if we can use it
             proj_queries = F.normalize(self.contrastive_align_projection_query(hs), p=2, dim=-1)

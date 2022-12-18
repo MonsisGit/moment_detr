@@ -14,6 +14,7 @@ import torch
 import torch.nn.functional as F
 from torch import nn, Tensor
 
+from moment_detr.mask import Mask_c
 
 
 class Transformer(nn.Module):
@@ -21,7 +22,8 @@ class Transformer(nn.Module):
     def __init__(self, d_model=512, nhead=8, num_encoder_layers=6,
                  num_decoder_layers=6, dim_feedforward=2048, dropout=0.1,
                  activation="relu", normalize_before=False,
-                 return_intermediate_dec=False, ret_tok_prop=False,decoder_gating=False,detach_decoder_gating=False):
+                 return_intermediate_dec=False, ret_tok_prop=False,
+                 decoder_gating=False,detach_decoder_gating=False, decoder_gating_feature="all"):
         super().__init__()
 
         # TransformerEncoderLayerThin
@@ -36,7 +38,8 @@ class Transformer(nn.Module):
         self.decoder_gating=decoder_gating
         if decoder_gating:
             # self.gate_d = F.gumbel_softmax(hard=True, tau=0.66667)
-            self.dec_gate_embed = nn.Linear(d_model, 1)
+            # self.dec_gate_embed = nn.Linear(d_model, 1)
+            self.mask_c = Mask_c()
         # TransformerDecoderLayerThin
         decoder_layer = TransformerDecoderLayer(d_model, nhead, dim_feedforward,
                                                 dropout, activation, normalize_before)
@@ -49,6 +52,7 @@ class Transformer(nn.Module):
         self.d_model = d_model
         self.nhead = nhead
         self.detach_decoder_gating=detach_decoder_gating
+        self.decoder_gating_feature=decoder_gating_feature
 
 
     def _reset_parameters(self):
@@ -56,7 +60,7 @@ class Transformer(nn.Module):
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
 
-    def forward(self, src, mask, query_embed, pos_embed, tmp=1.0):
+    def forward(self, src, mask, query_embed, pos_embed, frames):
         """
         Args:
             src: (batch_size, L, d)
@@ -78,7 +82,16 @@ class Transformer(nn.Module):
         memory = self.encoder(src, src_key_padding_mask=mask, pos=pos_embed)  # (L, batch_size, d)
 
         if self.decoder_gating:
-            d = F.gumbel_softmax(self.dec_gate_embed(memory[-1]), hard=not self.training, tau=tmp)
+            # d = F.gumbel_softmax(self.dec_gate_embed(memory[-1]), hard=not self.training, tau=tmp)
+            if self.decoder_gating_feature=='video':
+                mask_c, prob_soft = self.mask_c(memory[:frames].permute(1,2,0))
+            elif self.decoder_gating_feature=='text':
+                mask_c, prob_soft = self.mask_c(memory[frames:-1].permute(1, 2, 0)
+                                                if self.ret_tok_prop else memory[frames:].permute(1, 2, 0))
+            elif self.decoder_gating_feature == 'ret_tok' and self.ret_tok_prop:
+                mask_c, prob_soft = self.mask_c(memory[-1, None].permute(1, 2, 0))
+            else:
+                mask_c, prob_soft = self.mask_c(memory.permute(1, 2, 0))
 
         tgt = self.ret_prop_embed(memory[-1])[None].repeat((query_embed.shape[0], 1, 1)) \
             if self.ret_tok_prop else torch.zeros_like(query_embed)
@@ -88,18 +101,22 @@ class Transformer(nn.Module):
         #pos_embed = pos_embed[1:]
         #mask = mask[:,1:]
 
-        hs = self.decoder(tgt, memory[:-1], memory_key_padding_mask=mask[:,:-1],
-                          pos=pos_embed[:-1], query_pos=query_embed)  # (#layers, #queries, batch_size, d)
+        if self.ret_tok_prop:
+            hs = self.decoder(tgt, memory[:-1], memory_key_padding_mask=mask[:,:-1],
+                              pos=pos_embed[:-1], query_pos=query_embed)  # (#layers, #queries, batch_size, d)
+        else:
+            hs = self.decoder(tgt, memory, memory_key_padding_mask=mask,
+                              pos=pos_embed, query_pos=query_embed)  # (#layers, #queries, batch_size, d)
         hs = hs.transpose(1, 2)  # (#layers, batch_size, #qeries, d)
         if self.decoder_gating:
             if self.detach_decoder_gating:
-                hs *= d.detach()[None,:,:,None]
+                hs *= mask_c[None].detach()
             else:
-                hs *= d[None,:,:,None]
+                hs = hs * mask_c[None]
 
         # memory = memory.permute(1, 2, 0)  # (batch_size, d, L)
         memory = memory.transpose(0, 1)  # (batch_size, L, d)
-        return hs, memory, d
+        return hs, memory, prob_soft
 
 nn.Sequential()
 class TransformerEncoder(nn.Module):
@@ -488,9 +505,9 @@ def build_transformer(args):
         return_intermediate_dec=True,
         ret_tok_prop=args.ret_tok_prop,
         decoder_gating=args.decoder_gating,
-        detach_decoder_gating=args.detach_decoder_gating
+        detach_decoder_gating=args.detach_decoder_gating,
+        decoder_gating_feature=args.decoder_gating_feature
     )
-
 
 def _get_activation_fn(activation):
     """Return an activation function given a string"""

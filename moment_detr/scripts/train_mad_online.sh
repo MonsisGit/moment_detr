@@ -40,13 +40,12 @@ lw_saliency=4
 set_cost_class=4   #"Class coefficient in the matching cost"
 label_loss_coef=4
 lw_cls=4
-
 ##set for results tracking!
 window_length=30
 sampling_mode=online
 sampling_fps=5
-eval_results_dir=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_dr${data_ratio}_wl${window_length}_fps${sampling_fps}_lws${lw_saliency}_lloss${label_loss_coef}_closs${lw_cls}_decoder_gating
-
+decoder_gating_feature=ret_tok
+eval_results_dir=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_dr${data_ratio}_wl${window_length}_fps${sampling_fps}_lws${lw_saliency}_lloss${label_loss_coef}_closs${lw_cls}_detach_decoder_gating_${decoder_gating_feature}
 #resume
 resume=${root}momentDETR_results/${eval_results_dir}/model_best.ckpt
 
@@ -97,4 +96,6 @@ PYTHONPATH=$PYTHONPATH:. python moment_detr/train.py \
 --lw_cls ${lw_cls} \
 --ret_tok \
 --decoder_gating \
+--detach_decoder_gating \
+--decoder_gating_feature ${decoder_gating_feature} \
 ${@:1}

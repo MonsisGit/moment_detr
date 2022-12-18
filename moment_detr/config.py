@@ -171,6 +171,8 @@ class BaseOptions(object):
         parser.add_argument("--max_temp", type=float, default=1.0, help="for gumbel softmax")
         parser.add_argument("--min_temp", type=float, default=1.0, help="for gumbel softmax")
         parser.add_argument("--detach_decoder_gating", action="store_true", help="stop gradient gate the decoder")
+        parser.add_argument("--decoder_gating_feature", type=str, default="all",
+                            choices=["all", "video", "text", "ret_tok"])
 
         self.parser = parser
 
