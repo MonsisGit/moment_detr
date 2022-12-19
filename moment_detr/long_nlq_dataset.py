@@ -22,7 +22,7 @@ class LongNlqDataset(Dataset):
                  window_length=150,
                  video_fatures_path='CLIP_L14_frames_features_5fps.h5'):
         self.opt = opt
-        self.data_ratio = opt.data_ratio
+        self.data_ratio = opt.data_ratio_long_nlq
         self.lang_path = os.path.join(opt.t_feat_dir, opt.lang_feat_path)
         self.video_path = os.path.join(opt.v_feat_dirs[0], video_fatures_path)
         self.anno_path = os.path.join(opt.eval_path_long_nlq)
@@ -42,6 +42,7 @@ class LongNlqDataset(Dataset):
         logger.info(f'LOADING: {self.video_path}')
         video_feats = h5py.File(self.video_path, 'r')
         logger.info(f'LOADING: {self.anno_path}')
+
         annos = load_jsonl(self.anno_path)[0]
         if self.data_ratio != 1:
             n_examples = int(len(annos) * self.data_ratio)

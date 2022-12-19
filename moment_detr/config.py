@@ -30,6 +30,8 @@ class BaseOptions(object):
                             help="how many training and eval data to use. 1.0: use all, 0.1: use 10%."
                                  "Use small portion for debug purposes. Note this is different from --debug, "
                                  "which works by breaking the loops, typically they are not used together.")
+        parser.add_argument("--data_ratio_long_nlq", type=float, default=1.0,
+                            help="how many test data to use when evaluating on whole movies. 1.0: use all, 0.1: use 10%")
         parser.add_argument("--results_root", type=str, default="results")
         parser.add_argument("--exp_id", type=str, default=None, help="id of this run, required at training")
         parser.add_argument("--seed", type=int, default=2018, help="random seed")
@@ -66,7 +68,8 @@ class BaseOptions(object):
         parser.add_argument("--max_windows", type=int, default=5)
 
         parser.add_argument("--train_path", type=str, default=None)
-        parser.add_argument("--eval_path_long_nlq", type=str, default='/nfs/data3/goldhofer/mad_dataset/annotations/MAD_test.json')
+        parser.add_argument("--eval_path_long_nlq", type=str,
+                            default='/nfs/data3/goldhofer/mad_dataset/annotations/MAD_test.json')
         parser.add_argument("--eval_path", type=str, default=None,
                             help="Evaluating during training, for Dev set. If None, will only do training, ")
         parser.add_argument("--no_norm_vfeat", action="store_true", help="Do not do normalize video feat")
@@ -193,7 +196,7 @@ class BaseOptions(object):
             saved_options = load_json(os.path.join(opt.model_dir, opt.saved_option_filename))
             for arg in saved_options:  # use saved options to overwrite all BaseOptions args.
                 if arg not in ["results_root", "num_workers", "nms_thd", "debug",  # "max_before_nms", "max_after_nms"
-                               "max_pred_l", "min_pred_l", "data_ratio",
+                               "max_pred_l", "min_pred_l", "data_ratio","data_ratio_long_nlq",
                                "resume", "resume_all", "no_sort_results"]:
                     setattr(opt, arg, saved_options[arg])
                     # TODO fix

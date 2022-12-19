@@ -57,7 +57,7 @@ def start_inference_long_nlq():
         long_nlq_loader = DataLoader(
             long_nlq_dataset,
             collate_fn=collate_fn,
-            batch_size=4,
+            batch_size=2,
             num_workers=opt.num_workers,
             shuffle=False,
             pin_memory=opt.pin_memory
@@ -108,8 +108,8 @@ def start_inference_long_nlq():
                     #_submission, _ground_truth = remove_zero_predictions(_submission, _ground_truth)
                     _submission, _ground_truth = sort_pos_predicted(_submission, _ground_truth, n=100)
 
-                    preds[qid[i]] = {'_ground_truth': _ground_truth[0],
-                                     '_submission': _submission[0]}
+                    preds[qid[i]] = {'_ground_truth': _ground_truth,
+                                     '_submission': _submission}
                 except:
                     logger.info("Failed to calculate metrics for qid: {}".format(qid[i]))
                     logger.info(traceback.format_exc())
@@ -133,7 +133,6 @@ def eval_postprocessing(metrics, preds, opt, save_submission_filename):
 
     # mr metrics return -1, if there are no foreground predictions or no data is in the selected window range (length_ranges)
     avg_mr_metrics = {k: np.array([m[k] if m[k] != -1 else 0 for m in mr_metrics]).mean() for k in mr_metrics[0].keys()}
-    #TODO bug in MR-R1???
     percentage_no_intersection = {k: np.array([1 for m in mr_metrics if m[k] == -1]).sum() / len(mr_metrics) for k in
                                   mr_metrics[0].keys()}
 

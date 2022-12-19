@@ -10,7 +10,7 @@ train_path=${root}annotations/MAD_train_SMNone_FPS5_CL30_exts_balanced.json
 eval_path=${root}annotations/MAD_val_SMNone_FPS5_CL30_exts_balanced.json
 eval_path_long_nlq=${root}annotations/MAD_test.json
 #set
-eval_results_dir=CLIP_L14_bsz256_lr1e-4_dr1_wl30_fps5_lws4_lloss4_closs4_ret_tok_prop
+eval_results_dir=CLIP_L14_bsz128_lr4e-4_lrd15_dr1_wl30_smonline_fps5_lws4_lloss4_reduce_plateau
 ckpt_path=${root}momentDETR_results/${eval_results_dir}/model_best.ckpt
 v_feat_dirs=(/nfs/data3/goldhofer/mad_dataset/)
 t_feat_dir=/nfs/data3/goldhofer/mad_dataset/
@@ -23,8 +23,9 @@ t_feat_dim=768
 device=0
 sampling_fps=5
 nms_thd=0.3
-data_ratio=0.005
-num_workers=8
+data_ratio_long_nlq=0.01
+data_ratio=1
+num_workers=2
 
 PYTHONPATH=$PYTHONPATH:. python moment_detr/inference.py \
   --dset_name ${dset_name} \
@@ -46,6 +47,7 @@ PYTHONPATH=$PYTHONPATH:. python moment_detr/inference.py \
   --use_exact_ts \
   --nms_thd ${nms_thd} \
   --data_ratio ${data_ratio} \
-  --eval_path_long_nlq ${eval_path_long_nlq}
+  --eval_path_long_nlq ${eval_path_long_nlq} \
+  --data_ratio_long_nlq ${data_ratio_long_nlq} \
 
 ${@:1}

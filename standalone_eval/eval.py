@@ -305,7 +305,7 @@ def compute_ret_metrics(_submission, _ground_truth):
     binary_accuracy = BinaryAccuracy()
     accuracy = binary_accuracy(preds, targets)
     # recall is TP / (TP + FN), it evaluates the completeness of the positive predictions
-    # only foreground windows are considered
+    # TP is correctly predicted foreground windows, FN is incorrectly predicted foreground windows
     binary_recall = BinaryRecall()
     recall = binary_recall(preds, targets)
     #precision is TP / (TP + FP), it evaluates the correctness of the positive predictions
