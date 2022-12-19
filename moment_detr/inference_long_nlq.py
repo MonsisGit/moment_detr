@@ -6,13 +6,14 @@ import functools
 import os
 import traceback
 import random
+from collections import Counter
 
 from moment_detr.config import TestOptions
 from moment_detr.model import build_model
 from moment_detr.span_utils import span_cxw_to_xx
 from moment_detr.long_nlq_dataset import LongNlqDataset, collate_fn_replace_corrupted
-from standalone_eval.eval import eval_submission
-from utils.basic_utils import save_json, save_jsonl
+from standalone_eval.eval import eval_submission, sort_pos_predicted, remove_zero_predictions
+from utils.basic_utils import save_json
 
 import torch
 import torch.backends.cudnn as cudnn
@@ -79,11 +80,9 @@ def start_inference_long_nlq():
                 pred_spans = torch.cat([pred_spans, prob], dim=2).tolist()
                 ranked_spans = [sorted(_s, key=lambda x: x[2], reverse=True) for _s in pred_spans]
 
-                preds[qid[i]] = {
-                    'pred_spans': ranked_spans,
-                    'pred_cls': outputs['pred_cls'][:, 0]}
                 try:
-                    _pred = preds[qid[i]]
+                    _pred = {'pred_spans': ranked_spans,
+                             'pred_cls': outputs['pred_cls'][:, 0]}
 
                     # R@K should be calculated for windows, which are predicted foreground
                     # Retrieval metrics are calculated on foreground windows only
@@ -105,6 +104,12 @@ def start_inference_long_nlq():
                                                       is_nms=True,
                                                       iou_thds=[0.1, 0.3, 0.5],
                                                       top_ks=[1, 5, 10, 50, 100])
+
+                    #_submission, _ground_truth = remove_zero_predictions(_submission, _ground_truth)
+                    _submission, _ground_truth = sort_pos_predicted(_submission, _ground_truth, n=100)
+
+                    preds[qid[i]] = {'_ground_truth': _ground_truth[0],
+                                     '_submission': _submission[0]}
                 except:
                     logger.info("Failed to calculate metrics for qid: {}".format(qid[i]))
                     logger.info(traceback.format_exc())
@@ -127,29 +132,20 @@ def eval_postprocessing(metrics, preds, opt, save_submission_filename):
                        'precision': np.array([metric['precision'] for metric in ret_metrics]).mean().round(5)}
 
     # mr metrics return -1, if there are no foreground predictions or no data is in the selected window range (length_ranges)
-    avg_mr_metrics = {'MR-R1@0.5 (nms)':
-                          np.array([m['MR-R1@0.5 (nms)'] for m in mr_metrics if
-                                    m['MR-R1@0.5 (nms)'] != -1]).mean().round(5),
-                      'MR-R5@0.5 (nms)':
-                          np.array([m['MR-R5@0.5 (nms)'] for m in mr_metrics if
-                                    m['MR-R5@0.5 (nms)'] != -1]).mean().round(5),
-                      'MR-R10@0.5 (nms)':
-                          np.array([m['MR-R10@0.5 (nms)'] for m in mr_metrics if
-                                    m['MR-R10@0.5 (nms)'] != -1]).mean().round(
-                              5)}
+    avg_mr_metrics = {k: np.array([m[k] if m[k] != -1 else 0 for m in mr_metrics]).mean() for k in mr_metrics[0].keys()}
+    #TODO bug in MR-R1???
+    percentage_no_intersection = {k: np.array([1 for m in mr_metrics if m[k] == -1]).sum() / len(mr_metrics) for k in
+                                  mr_metrics[0].keys()}
+
     avg_metrics = {'avg_mr_metrics': avg_mr_metrics,
-                   'avg_ret_metrics': avg_ret_metrics}
+                   'avg_ret_metrics': avg_ret_metrics,
+                   'percentage_no_intersection': percentage_no_intersection}
 
     logger.info("\naverage metrics\n{}".format(pprint.pformat(avg_metrics, indent=4)))
     submission_path = os.path.join(opt.results_dir, save_submission_filename)
     save_metrics_path = submission_path.replace(".jsonl", "_metrics.json")
     save_json(avg_metrics, save_metrics_path, save_pretty=True, sort_keys=False)
-    preds = {key: {'pred_spans': preds[key]['pred_spans'],
-                   'pred_cls': np.array(preds[key]['pred_cls'].cpu()).tolist()} for key in preds.keys()}
     save_json(preds, submission_path)
-    preds_short = [preds[key] for key in np.random.choice(list(preds.keys()), 20)]
-    save_metrics_path_short = submission_path.replace(".jsonl", "_short.json")
-    save_json(preds_short, save_metrics_path_short)
 
 
 if __name__ == '__main__':

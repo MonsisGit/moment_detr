@@ -90,12 +90,12 @@ def compute_mr_rk(submission, ground_truth, iou_thds=[0.1, 0.3, 0.5], top_ks=[1,
             cur_gt_windows = d["relevant_windows"]
             cur_qid = d["qid"]
             if len(cur_gt_windows) > 0:  # select the GT window that has the highest IoU
-                if len(pred_qid2window) >= top_k:
-                    curr_pred_qid2window = np.array(pred_qid2window[cur_qid])
-                    cur_ious = compute_temporal_iou_batch_cross(
-                        curr_pred_qid2window, np.array(d["relevant_windows"])
-                    )[0]
-                    iou_thd2recall_at_d.append(cur_ious)
+                #if len(pred_qid2window) >= top_k:
+                curr_pred_qid2window = np.array(pred_qid2window[cur_qid])
+                cur_ious = compute_temporal_iou_batch_cross(
+                    curr_pred_qid2window, np.array(d["relevant_windows"])
+                )[0]
+                iou_thd2recall_at_d.append(cur_ious)
 
         for thd in iou_thds:
             if len(iou_thd2recall_at_d) != 0:
@@ -196,7 +196,7 @@ def get_data_by_range(submission, ground_truth, len_range, is_long_nlq):
     return submission_in_range, ground_truth_in_range
 
 
-def sort_pos_predicted(submission, ground_truth):
+def sort_pos_predicted(submission, ground_truth, n=None):
     # moment retrieval recall is only calculated on positive predicted windows
     pred_proba = torch.tensor([s['pred_cls'] for s in submission]).sigmoid()
     predicted_foreground_idx = (torch.where(pred_proba > 0.5)[0]).cpu()
@@ -210,9 +210,10 @@ def sort_pos_predicted(submission, ground_truth):
     _submission_vstack = []
     for _s in _submission:
         _submission_vstack.extend(_s['pred_relevant_windows'])
-    _submission = sorted(_submission_vstack, key=lambda x: x[2], reverse=True)
+    _submission_sorted = sorted(_submission_vstack, key=lambda x: x[2], reverse=True)[0:n]
     _submission = [{'qid': _ground_truth[0]['qid'],
-                    'pred_relevant_windows': _submission}]
+                    'pred_relevant_windows': _submission_sorted,
+                    'pred_cls':[_s['pred_cls'] for _s in _submission]}]
 
     return _submission, _ground_truth
 
