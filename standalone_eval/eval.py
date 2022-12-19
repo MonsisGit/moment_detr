@@ -200,6 +200,8 @@ def sort_pos_predicted(submission, ground_truth):
     # moment retrieval recall is only calculated on positive predicted windows
     pred_proba = torch.tensor([s['pred_cls'] for s in submission]).sigmoid()
     predicted_foreground_idx = (torch.where(pred_proba > 0.5)[0]).cpu()
+    if predicted_foreground_idx.shape[0]==0:
+        return [], []
     _submission = [submission[i] for i in predicted_foreground_idx]
     # can be any list entry of ground truth, since all are same
     _ground_truth = [ground_truth[0]]
@@ -216,6 +218,7 @@ def sort_pos_predicted(submission, ground_truth):
 
 
 def remove_zero_predictions(submission, ground_truth):
+    # removing zero windows from submission
     for idx, s in enumerate(submission):
         pred_relevant_windows_wo_zeros = [_s for _s in s['pred_relevant_windows'] if _s[0:2] != [0, 0]]
         submission[idx]['pred_relevant_windows'] = pred_relevant_windows_wo_zeros

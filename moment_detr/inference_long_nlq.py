@@ -4,6 +4,8 @@ import numpy as np
 from tqdm import tqdm
 import functools
 import os
+import traceback
+import random
 
 from moment_detr.config import TestOptions
 from moment_detr.model import build_model
@@ -23,12 +25,21 @@ logging.basicConfig(format="%(asctime)s.%(msecs)03d:%(levelname)s:%(name)s - %(m
                     level=logging.INFO)
 
 
+def set_seed(seed, use_cuda=True):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if use_cuda:
+        torch.cuda.manual_seed_all(seed)
+
+
 def start_inference_long_nlq():
     opt = TestOptions().parse()
     cudnn.benchmark = True
     cudnn.deterministic = False
 
     model, criterion = build_model(opt)
+    set_seed(opt.seed)
     if opt.device.type == "cuda":
         logger.info("CUDA enabled.")
         model.to(opt.device)
@@ -94,8 +105,9 @@ def start_inference_long_nlq():
                                                       is_nms=True,
                                                       iou_thds=[0.1, 0.3, 0.5],
                                                       top_ks=[1, 5, 10, 50, 100])
-                except Exception as e:
-                    logger.info(f"Error: {e}")
+                except:
+                    logger.info("Failed to calculate metrics for qid: {}".format(qid[i]))
+                    logger.info(traceback.format_exc())
 
             if opt.debug:
                 break
@@ -135,6 +147,9 @@ def eval_postprocessing(metrics, preds, opt, save_submission_filename):
     preds = {key: {'pred_spans': preds[key]['pred_spans'],
                    'pred_cls': np.array(preds[key]['pred_cls'].cpu()).tolist()} for key in preds.keys()}
     save_json(preds, submission_path)
+    preds_short = [preds[key] for key in np.random.choice(list(preds.keys()), 20)]
+    save_metrics_path_short = submission_path.replace(".jsonl", "_short.json")
+    save_json(preds_short, save_metrics_path_short)
 
 
 if __name__ == '__main__':
