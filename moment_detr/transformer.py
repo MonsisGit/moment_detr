@@ -24,7 +24,8 @@ class Transformer(nn.Module):
                  activation="relu", normalize_before=False,
                  return_intermediate_dec=False, ret_tok_prop=False,
                  decoder_gating=False,detach_decoder_gating=False,
-                 decoder_gating_feature="all", video_only_decoder=False,decoupled_attn=False):
+                 decoder_gating_feature="all", video_only_decoder=False,
+                 decoupled_attn=False, mask_decoder_gating=False):
         super().__init__()
 
         # TransformerEncoderLayerThin
@@ -66,6 +67,7 @@ class Transformer(nn.Module):
         self.detach_decoder_gating=detach_decoder_gating
         self.decoder_gating_feature=decoder_gating_feature
         self.video_only_decoder=video_only_decoder
+        self.mask_decoder_gating=mask_decoder_gating
         if video_only_decoder:
             self.avg_pool = nn.AdaptiveAvgPool1d(1)
 
@@ -141,7 +143,7 @@ class Transformer(nn.Module):
             hs = self.decoder(tgt, memory, memory_key_padding_mask=mask,
                               pos=pos_embed, query_pos=query_embed)  # (#layers, #queries, batch_size, d)
         hs = hs.transpose(1, 2)  # (#layers, batch_size, #qeries, d)
-        if self.decoder_gating:
+        if self.decoder_gating and self.mask_decoder_gating:
             if self.detach_decoder_gating:
                 hs *= mask_c[None].detach()
             else:
@@ -541,7 +543,8 @@ def build_transformer(args):
         detach_decoder_gating=args.detach_decoder_gating,
         decoder_gating_feature=args.decoder_gating_feature,
         video_only_decoder=args.video_only_decoder,
-        decoupled_attn=args.decoupled_attn
+        decoupled_attn=args.decoupled_attn,
+        mask_decoder_gating=args.mask_decoder_gating
     )
 
 def _get_activation_fn(activation):

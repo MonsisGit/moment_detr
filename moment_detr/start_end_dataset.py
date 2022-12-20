@@ -33,7 +33,7 @@ class StartEndDataset(Dataset):
                  normalize_v=True, normalize_t=True, load_labels=True,
                  clip_len=2, max_windows=5, span_loss_type="l1", txt_drop_ratio=0, sampling_fps=5,
                  sampling_mode='none', lang_feat_path='CLIP_L14_language_tokens_features',
-                 dataset_fps=5, v_feat_dim=768, use_exact_ts=False):
+                 dataset_fps=5, v_feat_dim=768, use_exact_ts=False, neg_window_ratio=0.5):
 
         self.dset_name = dset_name
         self.data_path = data_path
@@ -81,6 +81,7 @@ class StartEndDataset(Dataset):
         # self.data_keys = [d['qid'] for d in self.data]
         self.use_exact_ts = use_exact_ts
         self.val_offset = 0
+        self.neg_window_ratio=neg_window_ratio
 
     def load_data(self):
         datalist = load_jsonl(self.data_path)
@@ -342,7 +343,7 @@ class StartEndDataset(Dataset):
             start_window = stop_window - self.clip_length_in_frames
 
         # sample negative window
-        if random.random() < 0.5:
+        if random.random() < self.neg_window_ratio:
             neg_start_window, neg_stop_window = self._sample_neg_window(start_window, stop_window, meta)
             is_foreground = False
             return [neg_start_window, neg_stop_window], is_foreground

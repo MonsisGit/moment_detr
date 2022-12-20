@@ -45,9 +45,11 @@ window_length=30
 sampling_mode=online
 sampling_fps=5
 decoder_gating_feature=text
-eval_results_dir=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_dr${data_ratio}_wl${window_length}_fps${sampling_fps}_lws${lw_saliency}_lloss${label_loss_coef}_closs${lw_cls}_no_ret_tok_detach_decoder_gating_${decoder_gating_feature}_decoupled_attn
+eval_results_dir=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_dr${data_ratio}_wl${window_length}_fps${sampling_fps}_lws${lw_saliency}_lloss${label_loss_coef}_closs${lw_cls}_no_ret_tok_detach_decoder_gating_${decoder_gating_feature}_neg.05_decoupled_attn
+#eval_results_dir=CLIP_L14_bsz256_lr1e-4_dr1_wl30_fps5_lws4_lloss4_closs4_no_ret_tok_detach_decoder_gating_text_decoupled_attn
+#eval_results_dir=CLIP_L14_bsz256_lr1e-4_dr1_wl30_fps5_lws4_lloss4_closs4_ret_tok_prop_detach_decoder_gating_text_no gating
 #resume
-resume=${root}momentDETR_results/${eval_results_dir}/model_best.ckpt
+ckpt_path=${root}momentDETR_results/${eval_results_dir}/model_best.ckpt
 
 if [ ${window_length} -gt ${max_v_l} ]; then
     echo "Window length larger than max_v_l"

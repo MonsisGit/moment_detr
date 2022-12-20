@@ -302,6 +302,7 @@ def start_training():
     )
 
     dataset_config["data_path"] = opt.train_path
+    dataset_config["neg_window_ratio"] = opt.neg_window_ratio
     train_dataset = StartEndDataset(**dataset_config)
 
     if opt.eval_path is not None:

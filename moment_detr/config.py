@@ -167,6 +167,7 @@ class BaseOptions(object):
         parser.add_argument("--ret_tok", action="store_true", help="use ret tok in encoder")
         parser.add_argument("--ret_tok_prop", action="store_true", help="use ret tok in decoder")
         parser.add_argument("--decoder_gating", action="store_true", help="use gumbel softmax to gate the decoder")
+        parser.add_argument("--mask_decoder_gating", action="store_true", help="mask moment tokens")
         parser.add_argument("--annealing_rate", type=float, default=0.00003, help="for gumbel softmax")
         parser.add_argument("--max_temp", type=float, default=1.0, help="for gumbel softmax")
         parser.add_argument("--min_temp", type=float, default=1.0, help="for gumbel softmax")
@@ -175,6 +176,7 @@ class BaseOptions(object):
                             choices=["all", "video", "text", "ret_tok"])
         parser.add_argument("--video_only_decoder", action="store_true", help="video as keys, queries from text pooling")
         parser.add_argument("--decoupled_attn", action="store_true", help="separate attn for video and text")
+        parser.add_argument("--neg_window_ratio", type=float, default=0.5, help="ratio of negative windows")
         self.parser = parser
 
     def display_save(self, opt):
