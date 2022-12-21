@@ -186,9 +186,12 @@ def get_data_by_range(submission, ground_truth, len_range):
 
         rel_windows_in_range = []
         for w in d["relevant_windows"]:
-            if min_l < get_window_len(w) <= max_l or d['qid'] == prev_qid:
+            if min_l < get_window_len(w) <= max_l:
                 rel_windows_in_range.append(w)
                 prev_qid = d["qid"]
+
+            elif d['qid'] == prev_qid and not d["is_foreground"]:
+                rel_windows_in_range.append(w)
 
         if len(rel_windows_in_range) > 0:
             d = copy.deepcopy(d)
@@ -198,9 +201,9 @@ def get_data_by_range(submission, ground_truth, len_range):
 
     # keep only submissions for ground_truth_in_range
     submission_in_range = []
-    for d in submission:
-        if d["qid"] in gt_qids_in_range:
-            submission_in_range.append(copy.deepcopy(d))
+    for idx, g in enumerate(ground_truth_in_range):
+        if g['qid'] in gt_qids_in_range and submission[idx]['qid'] in gt_qids_in_range:
+            submission_in_range.append(copy.deepcopy(submission[idx]))
 
     return submission_in_range, ground_truth_in_range
 
