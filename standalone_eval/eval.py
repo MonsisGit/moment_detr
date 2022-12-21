@@ -90,7 +90,7 @@ def compute_mr_rk(submission, ground_truth, iou_thds=[0.1, 0.3, 0.5], top_ks=[1,
             cur_gt_windows = d["relevant_windows"]
             cur_qid = d["qid"]
             if len(cur_gt_windows) > 0:  # select the GT window that has the highest IoU
-                #if len(pred_qid2window) >= top_k:
+                # if len(pred_qid2window) >= top_k:
                 curr_pred_qid2window = np.array(pred_qid2window[cur_qid])
                 cur_ious = compute_temporal_iou_batch_cross(
                     curr_pred_qid2window, np.array(d["relevant_windows"])
@@ -147,15 +147,7 @@ def get_window_len(window):
     return window[1] - window[0]
 
 
-def get_data_by_range(submission, ground_truth, len_range, is_long_nlq):
-    """ keep queries with ground truth window length in the specified length range.
-    Args:
-        submission:
-        ground_truth:
-        len_range: [min_l (int), max_l (int)]. the range is (min_l, max_l], i.e., min_l < l <= max_l
-    """
-    if is_long_nlq:
-        return submission, ground_truth
+def match_ids(ground_truth, submission):
     is_foreground_idx = [idx for idx, g in enumerate(ground_truth) if g['is_foreground']]
     ground_truth = [g for idx, g in enumerate(ground_truth) if idx in is_foreground_idx]
     submission = [g for idx, g in enumerate(submission) if idx in is_foreground_idx]
@@ -168,19 +160,36 @@ def get_data_by_range(submission, ground_truth, len_range, is_long_nlq):
         submission = [e for e in submission if e["qid"] in shared_qids]
         ground_truth = [e for e in ground_truth if e["qid"] in shared_qids]
 
+    return ground_truth, submission
+
+
+def get_data_by_range(submission, ground_truth, len_range):
+    """ keep queries with ground truth window length in the specified length range.
+    Args:
+        submission:
+        ground_truth:
+        len_range: [min_l (int), max_l (int)]. the range is (min_l, max_l], i.e., min_l < l <= max_l
+    """
+
     min_l, max_l = len_range
     if min_l == 0 and max_l == 200:  # min and max l in dataset
         return submission, ground_truth
 
     # only keep ground truth with windows in the specified length range
     # if multiple GT windows exists, we only keep the ones in the range
+    prev_qid = None
     ground_truth_in_range = []
     gt_qids_in_range = set()
     for d in ground_truth:
         if not any(isinstance(i, list) for i in d["relevant_windows"]):
             d["relevant_windows"] = [d["relevant_windows"]]
-        rel_windows_in_range = [
-            w for w in d["relevant_windows"] if min_l < get_window_len(w) <= max_l]
+
+        rel_windows_in_range = []
+        for w in d["relevant_windows"]:
+            if min_l < get_window_len(w) <= max_l or d['qid'] == prev_qid:
+                rel_windows_in_range.append(w)
+                prev_qid = d["qid"]
+
         if len(rel_windows_in_range) > 0:
             d = copy.deepcopy(d)
             d["relevant_windows"] = rel_windows_in_range
@@ -200,7 +209,7 @@ def sort_pos_predicted(submission, ground_truth, n=None):
     # moment retrieval recall is only calculated on positive predicted windows
     pred_proba = torch.tensor([s['pred_cls'] for s in submission]).sigmoid()
     predicted_foreground_idx = (torch.where(pred_proba > 0.5)[0]).cpu()
-    if predicted_foreground_idx.shape[0]==0:
+    if predicted_foreground_idx.shape[0] == 0:
         return [], []
     _submission = [submission[i] for i in predicted_foreground_idx]
     # can be any list entry of ground truth, since all are same
@@ -213,7 +222,7 @@ def sort_pos_predicted(submission, ground_truth, n=None):
     _submission_sorted = sorted(_submission_vstack, key=lambda x: x[2], reverse=True)[0:n]
     _submission = [{'qid': _ground_truth[0]['qid'],
                     'pred_relevant_windows': _submission_sorted,
-                    'pred_cls':[_s['pred_cls'] for _s in _submission]}]
+                    'pred_cls': [_s['pred_cls'] for _s in _submission]}]
 
     return _submission, _ground_truth
 
@@ -226,35 +235,37 @@ def remove_zero_predictions(submission, ground_truth):
         if len(submission[idx]['pred_relevant_windows']) == 0:
             del submission[idx]
             del ground_truth[idx]
+
     return submission, ground_truth
 
 
-def eval_moment_retrieval(submission, ground_truth, verbose=True, is_nms=False,
-                          is_long_nlq=False, length_ranges=[[0, 10], [10, 20], [20, 30], [0, 200], ],
-                          range_names=["short", "middle", "long", "full"],
-                          iou_thds=[0.1, 0.3, 0.5], top_ks=[1, 2, 5, 10]):
+def eval_moment_retrieval(submission, ground_truth, verbose, is_nms,
+                          is_long_nlq, length_ranges, range_names,
+                          iou_thds, top_ks):
     range_names = [f'{d}_{length_ranges[idx][0]}_{length_ranges[idx][1]}' if d != 'full' else 'full' for idx, d in
                    enumerate(range_names)]
 
     ret_metrics = {}
-    submission, ground_truth = remove_zero_predictions(submission, ground_truth)
+    _submission, _ground_truth = remove_zero_predictions(submission, ground_truth)
 
     for l_range, name in zip(length_ranges, range_names):
         if verbose:
             start_time = time.time()
-
-        _submission, _ground_truth = get_data_by_range(submission, ground_truth, l_range, is_long_nlq)
-        cls_acc, cls_recall, cls_precision = compute_ret_metrics(_submission, _ground_truth)
-
-        if is_long_nlq:
-            _submission, _ground_truth = sort_pos_predicted(_submission, _ground_truth)
+        if not is_long_nlq:
+            _submission, _ground_truth = get_data_by_range(_submission, _ground_truth, l_range)
 
         if len(_submission) != 0:
             if verbose:
                 print(f"{name}: {l_range}, {len(_ground_truth)}/{len(ground_truth)}="
                       f"{100 * len(_ground_truth) / len(ground_truth):.2f}% examples.")
 
+            cls_acc, cls_recall, cls_precision = compute_ret_metrics(_submission, _ground_truth)
+
+            if is_long_nlq:
+                _submission, _ground_truth = sort_pos_predicted(_submission, _ground_truth)
+
             iou_thd2average_precision = compute_mr_ap(_submission, _ground_truth, num_workers=8, chunksize=50)
+
             iou_thd2recall_at_k = compute_mr_rk(submission=_submission,
                                                 ground_truth=_ground_truth,
                                                 is_nms=is_nms,
@@ -264,6 +275,7 @@ def eval_moment_retrieval(submission, ground_truth, verbose=True, is_nms=False,
             if verbose:
                 print(f"[eval_moment_retrieval] [{name}] {time.time() - start_time:.2f} seconds")
         else:
+            cls_acc = cls_recall = cls_precision = -1
             iou_thd2average_precision = {"0.5": -1,
                                          "0.55": -1,
                                          "0.6": -1,
@@ -297,6 +309,9 @@ def eval_moment_retrieval(submission, ground_truth, verbose=True, is_nms=False,
 
 
 def compute_ret_metrics(_submission, _ground_truth):
+    if len(_submission) != len(_ground_truth):
+        print(f"Submission and ground truth have different lengths: {len(_submission)} vs {len(_ground_truth)}")
+        _ground_truth, _submission = match_ids(_ground_truth, _submission)
 
     preds = torch.tensor([s['pred_cls'] for s in _submission]).squeeze()
     targets = torch.tensor([int(gt['is_foreground']) for gt in _ground_truth])
@@ -308,7 +323,7 @@ def compute_ret_metrics(_submission, _ground_truth):
     # TP is correctly predicted foreground windows, FN is incorrectly predicted foreground windows
     binary_recall = BinaryRecall()
     recall = binary_recall(preds, targets)
-    #precision is TP / (TP + FP), it evaluates the correctness of the positive predictions
+    # precision is TP / (TP + FP), it evaluates the correctness of the positive predictions
     # background windows are also considered
     binary_precision = BinaryPrecision()
     precision = binary_precision(preds, targets)
@@ -411,10 +426,8 @@ def eval_highlight(submission, ground_truth, verbose=True):
     return highlight_det_metrics
 
 
-def eval_submission(submission, ground_truth, verbose=True, match_number=False, is_nms=False,
-                    is_long_nlq=False, length_ranges=[[0, 10], [10, 20], [20, 30], [0, 200], ],
-                    range_names=["short", "middle", "long", "full"],
-                    iou_thds=[0.1, 0.3, 0.5], top_ks=[1, 2, 5, 10]):
+def eval_submission(submission, ground_truth, verbose, match_number, is_nms,
+                    is_long_nlq, length_ranges, range_names, iou_thds, top_ks):
     """
     Args:
         submission: list(dict), each dict is {
@@ -461,29 +474,34 @@ def eval_submission(submission, ground_truth, verbose=True, match_number=False, 
     eval_metrics_brief = OrderedDict()
     if "pred_relevant_windows" in submission[0]:
         moment_ret_scores = eval_moment_retrieval(
-            submission, ground_truth, verbose=verbose, is_nms=is_nms,
-            is_long_nlq=is_long_nlq, length_ranges=length_ranges, range_names=range_names,
-            iou_thds=iou_thds, top_ks=top_ks)
+            submission, ground_truth,
+            verbose=verbose,
+            is_nms=is_nms,
+            is_long_nlq=is_long_nlq,
+            length_ranges=length_ranges,
+            range_names=range_names,
+            iou_thds=iou_thds,
+            top_ks=top_ks)
 
         eval_metrics.update(moment_ret_scores)
         if is_nms:
             moment_ret_scores_brief = {
-                "MR-R1@0.5 (nms)": moment_ret_scores["full"]["MR-RK"]["0.5@1"],
-                "MR-R5@0.5 (nms)": moment_ret_scores["full"]["MR-RK"]["0.5@5"],
-                "MR-R10@0.5 (nms)": moment_ret_scores["full"]["MR-RK"]["0.5@10"],
+                "MR-R1@0.5 (nms)": moment_ret_scores["full"]["MR-RK"].pop("0.5@1", None),
+                "MR-R5@0.5 (nms)": moment_ret_scores["full"]["MR-RK"].pop("0.5@5", None),
+                "MR-R10@0.5 (nms)": moment_ret_scores["full"]["MR-RK"].pop("0.5@10", None),
 
             }
         else:
             moment_ret_scores_brief = {
-                "CLS-Acc": moment_ret_scores["full"]['CLS']["accuracy"],
-                "CLS-Recall": moment_ret_scores["full"]['CLS']["recall"],
-                "CLS-Precision": moment_ret_scores["full"]['CLS']["precision"],
-                "MR-mAP": moment_ret_scores["full"]["MR-mAP"]["average"],
+                "CLS-Acc": moment_ret_scores["full"]['CLS'].pop("accuracy", None),
+                "CLS-Recall": moment_ret_scores["full"]['CLS'].pop("recall", None),
+                "CLS-Precision": moment_ret_scores["full"]['CLS'].pop("precision", None),
+                "MR-mAP": moment_ret_scores["full"]["MR-mAP"].pop("average", None),
 
-                "MR-R1@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@1"],
-                "MR-R2@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@2"],
-                "MR-R5@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@5"],
-                "MR-R10@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@10"],
+                "MR-R1@0.5": moment_ret_scores["full"]["MR-RK"].pop("0.5@1", None),
+                "MR-R2@0.5": moment_ret_scores["full"]["MR-RK"].pop("0.5@2", None),
+                "MR-R5@0.5": moment_ret_scores["full"]["MR-RK"].pop("0.5@5", None),
+                "MR-R10@0.5": moment_ret_scores["full"]["MR-RK"].pop("0.5@10", None),
             }
         eval_metrics_brief.update(
             sorted([(k, v) for k, v in moment_ret_scores_brief.items()], key=lambda x: x[0]))

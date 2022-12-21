@@ -10,7 +10,7 @@ train_path=${root}annotations/MAD_train_SMNone_FPS5_CL30_exts_balanced.json
 eval_path=${root}annotations/MAD_val_SMNone_FPS5_CL30_exts_balanced.json
 eval_path_long_nlq=${root}annotations/MAD_test.json
 #set
-eval_results_dir=CLIP_L14_bsz128_lr4e-4_lrd15_dr1_wl30_smonline_fps5_lws4_lloss4_reduce_plateau
+eval_results_dir=CLIP_L14_bsz256_lr1e-4_dr1_wl30_fps5_lws4_lloss4_closs4
 ckpt_path=${root}momentDETR_results/${eval_results_dir}/model_best.ckpt
 v_feat_dirs=(/nfs/data3/goldhofer/mad_dataset/)
 t_feat_dir=/nfs/data3/goldhofer/mad_dataset/

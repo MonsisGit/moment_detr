@@ -103,7 +103,8 @@ def start_inference_long_nlq():
                                                       range_names=['full'],
                                                       is_nms=True,
                                                       iou_thds=[0.1, 0.3, 0.5],
-                                                      top_ks=[1, 5, 10, 50, 100])
+                                                      top_ks=[1,2, 5, 10, 50, 100],
+                                                      match_number=False)
 
                     #_submission, _ground_truth = remove_zero_predictions(_submission, _ground_truth)
                     _submission, _ground_truth = sort_pos_predicted(_submission, _ground_truth, n=100)
