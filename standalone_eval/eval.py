@@ -1,5 +1,5 @@
 import numpy as np
-from collections import OrderedDict, defaultdict
+from collections import OrderedDict, defaultdict, Counter
 import json
 import time
 import copy
@@ -9,6 +9,13 @@ from standalone_eval.utils import compute_average_precision_detection, \
 
 import torch
 from torchmetrics.classification import BinaryRecall, BinaryAccuracy, BinaryPrecision
+
+import logging
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(format="%(asctime)s.%(msecs)03d:%(levelname)s:%(name)s - %(message)s",
+                    datefmt="%Y-%m-%d %H:%M:%S",
+                    level=logging.INFO)
 
 
 def compute_average_precision_detection_wrapper(
@@ -65,6 +72,8 @@ def compute_mr_ap(submission, ground_truth, iou_thds=np.linspace(0.5, 0.95, 10),
 
     # print(f"compute_average_precision_detection {time.time() - start_time:.2f} seconds.")
     ap_array = np.array(list(qid2ap_list.values()))  # (#queries, #thd)
+    if ap_array.shape[0] == 0:
+        return {'average': -1}
     ap_thds = ap_array.mean(0)  # mAP at different IoU thresholds.
     iou_thd2ap = dict(zip([str(e) for e in iou_thds], ap_thds))
     iou_thd2ap["average"] = np.mean(ap_thds)
@@ -73,8 +82,9 @@ def compute_mr_ap(submission, ground_truth, iou_thds=np.linspace(0.5, 0.95, 10),
     return iou_thd2ap
 
 
-def compute_mr_rk(submission, ground_truth, iou_thds=[0.1, 0.3, 0.5], top_ks=[1, 2, 5, 10], is_nms=False):
+def compute_mr_rk(submission, ground_truth, iou_thds, top_ks, is_nms=False):
     """If a predicted segment has IoU >= iou_thd with one of the 1st GT segment, we define it positive"""
+
     iou_thds = [float(f"{e:.2f}") for e in iou_thds]
     pred_qid2window = dict()
     iou_thd2recall_at_k = {}
@@ -87,18 +97,21 @@ def compute_mr_rk(submission, ground_truth, iou_thds=[0.1, 0.3, 0.5], top_ks=[1,
             cur_gt_windows = d["relevant_windows"]
             cur_qid = d["qid"]
             if len(cur_gt_windows) > 0:  # select the GT window that has the highest IoU
-                if len(pred_qid2window) >= top_k:
-                    curr_pred_qid2window = np.array(pred_qid2window[cur_qid])
-                    cur_ious = compute_temporal_iou_batch_cross(
-                        curr_pred_qid2window, np.array(d["relevant_windows"])
-                    )[0]
-                    iou_thd2recall_at_d.append(cur_ious)
+                # if len(pred_qid2window) >= top_k:
+                curr_pred_qid2window = np.array(pred_qid2window[cur_qid])
+                cur_ious = compute_temporal_iou_batch_cross(
+                    curr_pred_qid2window, np.array(d["relevant_windows"])
+                )[0]
+                pad_value = top_k - cur_ious.shape[0]
+                cur_ious = np.pad(cur_ious, pad_width=((0, pad_value), (0, 0)), constant_values=None)
+                iou_thd2recall_at_d.append(cur_ious)
 
         for thd in iou_thds:
             if len(iou_thd2recall_at_d) != 0:
                 if not is_nms:
                     iou_thd2recall_at_k[f'{thd}@{top_k}'] = float(
                         f"{(np.array(iou_thd2recall_at_d)[..., 0] >= thd).any(1).mean() * 100:.2f}")
+
                 else:
                     iou_temp = []
                     for iou in iou_thd2recall_at_d:
@@ -144,17 +157,8 @@ def get_window_len(window):
     return window[1] - window[0]
 
 
-def get_data_by_range(submission, ground_truth, len_range):
-    """ keep queries with ground truth window length in the specified length range.
-    Args:
-        submission:
-        ground_truth:
-        len_range: [min_l (int), max_l (int)]. the range is (min_l, max_l], i.e., min_l < l <= max_l
-    """
-    is_foreground_idx = [idx for idx, g in enumerate(ground_truth) if g['is_foreground']]
-    ground_truth = [g for idx, g in enumerate(ground_truth) if idx in is_foreground_idx]
-    submission = [g for idx, g in enumerate(submission) if idx in is_foreground_idx]
-
+def match_ids(ground_truth, submission):
+    """Match the qids in submission to the ground truth."""
     pred_qids = set([e["qid"] for e in submission])
     gt_qids = set([e["qid"] for e in ground_truth])
     shared_qids = pred_qids.intersection(gt_qids)
@@ -163,9 +167,18 @@ def get_data_by_range(submission, ground_truth, len_range):
         submission = [e for e in submission if e["qid"] in shared_qids]
         ground_truth = [e for e in ground_truth if e["qid"] in shared_qids]
 
+    return ground_truth, submission
+
+
+def get_data_by_range(submission, ground_truth, len_range):
+    """ keep queries with ground truth window length in the specified length range.
+    Args:
+        submission:
+        ground_truth:
+        len_range: [min_l (int), max_l (int)]. the range is (min_l, max_l], i.e., min_l < l <= max_l
+    """
+
     min_l, max_l = len_range
-    if min_l == 0 and max_l == 200:  # min and max l in dataset
-        return submission, ground_truth
 
     # only keep ground truth with windows in the specified length range
     # if multiple GT windows exists, we only keep the ones in the range
@@ -174,8 +187,12 @@ def get_data_by_range(submission, ground_truth, len_range):
     for d in ground_truth:
         if not any(isinstance(i, list) for i in d["relevant_windows"]):
             d["relevant_windows"] = [d["relevant_windows"]]
-        rel_windows_in_range = [
-            w for w in d["relevant_windows"] if min_l < get_window_len(w) <= max_l]
+
+        rel_windows_in_range = []
+        for w in d["relevant_windows"]:
+            if min_l < get_window_len(w) <= max_l:
+                rel_windows_in_range.append(w)
+
         if len(rel_windows_in_range) > 0:
             d = copy.deepcopy(d)
             d["relevant_windows"] = rel_windows_in_range
@@ -191,87 +208,136 @@ def get_data_by_range(submission, ground_truth, len_range):
     return submission_in_range, ground_truth_in_range
 
 
-def eval_moment_retrieval(submission, ground_truth, verbose=True, is_nms=False,
-                          is_long_nlq=False):
-    length_ranges = [[0, 10], [10, 20], [20, 30], [0, 200], ]  #
-    range_names = ["short", "middle", "long", "full"]
+def sort_pos_predicted(submission, ground_truth, n=None):
+    # moment retrieval recall is only calculated on positive predicted windows
+    pred_proba = torch.tensor([s['pred_cls'] for s in submission]).sigmoid()
+    predicted_foreground_idx = (torch.where(pred_proba > 0.5)[0]).cpu()
+    if predicted_foreground_idx.shape[0] == 0:
+        return [], []
+    _submission = [submission[i] for i in predicted_foreground_idx]
+    # can be any list entry of ground truth, since all are same
+    _ground_truth = [ground_truth[0]]
+
+    # predicted windows are sorted by confidence
+    _submission_vstack = []
+    for _s in _submission:
+        _submission_vstack.extend(_s['pred_relevant_windows'])
+    _submission_sorted = sorted(_submission_vstack, key=lambda x: x[2], reverse=True)
+    _submission = [{'qid': _ground_truth[0]['qid'],
+                    'pred_relevant_windows': _submission_sorted,
+                    'pred_cls': [_s['pred_cls'] for _s in _submission]}]
+
+    return _submission, _ground_truth
+
+
+def remove_zero_predictions(submission, ground_truth, verbose):
+    # removing zero windows from submission
+    nm_removed = 0
+    for idx, s in enumerate(submission):
+        pred_relevant_windows_wo_zeros = [_s for _s in s['pred_relevant_windows'] if _s[0:2] != [0, 0]]
+        submission[idx]['pred_relevant_windows'] = pred_relevant_windows_wo_zeros
+        if verbose:
+            nm_removed += len(s['pred_relevant_windows']) - len(pred_relevant_windows_wo_zeros)
+        if len(submission[idx]['pred_relevant_windows']) == 0:
+            del submission[idx]
+            del ground_truth[idx]
+
+    if verbose:
+        print(f"Removed {nm_removed} zero windows from submission")
+
+    return submission, ground_truth
+
+
+def eval_moment_retrieval(submission, ground_truth, verbose, is_nms,
+                          is_long_nlq, length_ranges, range_names,
+                          iou_thds, top_ks):
     range_names = [f'{d}_{length_ranges[idx][0]}_{length_ranges[idx][1]}' if d != 'full' else 'full' for idx, d in
                    enumerate(range_names)]
 
-    cls_acc, cls_recall, cls_precision = compute_cls_acc(submission, ground_truth)
     ret_metrics = {}
+    cls_acc, cls_recall, cls_precision = compute_ret_metrics(submission, ground_truth)
+    _submission, _ground_truth = remove_zero_predictions(submission, ground_truth, verbose)
+
     for l_range, name in zip(length_ranges, range_names):
+
         if verbose:
             start_time = time.time()
-        #TODO fix with long nlq
-        _submission, _ground_truth = get_data_by_range(submission, ground_truth, l_range)
+        if not is_long_nlq:
+            _submission, _ground_truth = get_data_by_range(submission, ground_truth, l_range)
+
         if len(_submission) != 0:
             if verbose:
                 print(f"{name}: {l_range}, {len(_ground_truth)}/{len(ground_truth)}="
-                  f"{100 * len(_ground_truth) / len(ground_truth):.2f}% examples.")
+                      f"{100 * len(_ground_truth) / len(ground_truth):.2f}% examples.")
+
+            if is_long_nlq:
+                _submission, _ground_truth = sort_pos_predicted(_submission, _ground_truth)
 
             iou_thd2average_precision = compute_mr_ap(_submission, _ground_truth, num_workers=8, chunksize=50)
-            # iou_thd2recall_at_k = compute_mr_r1(_submission, _ground_truth)
+
             iou_thd2recall_at_k = compute_mr_rk(submission=_submission,
                                                 ground_truth=_ground_truth,
-                                                is_nms=is_nms)
-            ret_metrics[name] = {"MR-mAP": iou_thd2average_precision, "MR-RK": iou_thd2recall_at_k}
+                                                is_nms=is_nms,
+                                                iou_thds=iou_thds,
+                                                top_ks=top_ks)
+
             if verbose:
                 print(f"[eval_moment_retrieval] [{name}] {time.time() - start_time:.2f} seconds")
         else:
-            placeholder_scores_mAP = {"0.5": -1,
-                                      "0.55": -1,
-                                      "0.6": -1,
-                                      "0.65": -1,
-                                      "0.70": -1,
-                                      "0.75": -1,
-                                      "0.8": -1,
-                                      "0.85": -1,
-                                      "0.9": -1,
-                                      "0.95": -1,
-                                      "average": -1,
-                                      }
-            placeholder_scores_mr = {'0.1@1': -1,
-                                     '0.3@1': -1,
-                                     '0.5@1': -1,
-                                     '0.1@5': -1,
-                                     '0.3@5': -1,
-                                     '0.5@5': -1,
-                                     '0.1@10': -1,
-                                     '0.3@10': -1,
-                                     '0.5@10': -1, }
+            iou_thd2average_precision = {"0.5": -1,
+                                         "0.55": -1,
+                                         "0.6": -1,
+                                         "0.65": -1,
+                                         "0.70": -1,
+                                         "0.75": -1,
+                                         "0.8": -1,
+                                         "0.85": -1,
+                                         "0.9": -1,
+                                         "0.95": -1,
+                                         "average": -1,
+                                         }
+            iou_thd2recall_at_k = {'0.1@1': -1,
+                                   '0.3@1': -1,
+                                   '0.5@1': -1,
+                                   '0.1@5': -1,
+                                   '0.3@5': -1,
+                                   '0.5@5': -1,
+                                   '0.1@10': -1,
+                                   '0.3@10': -1,
+                                   '0.5@10': -1, }
 
-            ret_metrics[name] = {"MR-mAP": placeholder_scores_mAP, "MR-RK": placeholder_scores_mr}
-
+        ret_metrics[name] = {"MR-mAP": iou_thd2average_precision,
+                             "MR-RK": iou_thd2recall_at_k
+                             }
     ret_metrics['CLS'] = {'accuracy': round(cls_acc, 2),
                           'recall': round(cls_recall, 2),
                           'precision': round(cls_precision, 2)}
+
     return ret_metrics
 
 
-def compute_cls_acc(_submission, _ground_truth, ):
-    binary_recall = BinaryRecall()
-    binary_precision = BinaryPrecision()
-    binary_accuracy = BinaryAccuracy()
+def compute_ret_metrics(_submission, _ground_truth):
+    if len(_submission) != len(_ground_truth):
+        logger.warning(
+            f"Submission and ground truth have different lengths: {len(_submission)} vs {len(_ground_truth)}")
+        _ground_truth, _submission = match_ids(_ground_truth, _submission)
+
     preds = torch.tensor([s['pred_cls'] for s in _submission]).squeeze()
     targets = torch.tensor([int(gt['is_foreground']) for gt in _ground_truth])
 
-    return float(binary_accuracy(preds, targets)), float(binary_recall(preds, targets)), float(
-        binary_precision(preds, targets))
-
-
-def long_nlq_metrics(_submission, _ground_truth):
-    binary_recall = BinaryRecall()
-    binary_precision = BinaryPrecision()
+    # accuracy might be high, because of unbalanced data
     binary_accuracy = BinaryAccuracy()
+    accuracy = binary_accuracy(preds, targets)
+    # recall is TP / (TP + FN), it evaluates the completeness of the positive predictions
+    # TP is correctly predicted foreground windows, FN is incorrectly predicted foreground windows
+    binary_recall = BinaryRecall()
+    recall = binary_recall(preds, targets)
+    # precision is TP / (TP + FP), it evaluates the correctness of the positive predictions
+    # background windows are also considered
+    binary_precision = BinaryPrecision()
+    precision = binary_precision(preds, targets)
 
-    preds = _submission['pred_cls'][:,0].cpu()
-    targets = _ground_truth['is_foreground']
-
-    accuracy = float(binary_accuracy(preds, targets))
-    recall = float(binary_recall(preds, targets))
-    precision = float(binary_precision(preds, targets))
-    return accuracy, recall, precision
+    return float(accuracy), float(recall), float(precision)
 
 
 def compute_hl_hit1(qid2preds, qid2gt_scores_binary):
@@ -369,7 +435,8 @@ def eval_highlight(submission, ground_truth, verbose=True):
     return highlight_det_metrics
 
 
-def eval_submission(submission, ground_truth, verbose=True, match_number=False, is_nms=False):
+def eval_submission(submission, ground_truth, verbose, match_number, is_nms,
+                    is_long_nlq, length_ranges, range_names, iou_thds, top_ks):
     """
     Args:
         submission: list(dict), each dict is {
@@ -400,46 +467,54 @@ def eval_submission(submission, ground_truth, verbose=True, match_number=False, 
     pred_qids = set([e["qid"] for e in submission])
     gt_qids = set([e["qid"] for e in ground_truth])
 
-    # TODO set match_number to False
-    match_number = False
-    if match_number:
-        assert pred_qids == gt_qids, \
-            f"qids in ground_truth and submission must match. " \
-            f"use `match_number=False` if you wish to disable this check"
-    else:  # only leave the items that exists in both submission and ground_truth
-        shared_qids = pred_qids.intersection(gt_qids)
-        if len(gt_qids) != len(shared_qids) or len(pred_qids) != len(shared_qids):
-            submission = [e for e in submission if e["qid"] in shared_qids]
-            ground_truth = [e for e in ground_truth if e["qid"] in shared_qids]
+    shared_qids = pred_qids.intersection(gt_qids)
+    if len(gt_qids) != len(shared_qids) or len(pred_qids) != len(shared_qids):
+        submission = [e for e in submission if e["qid"] in shared_qids]
+        ground_truth = [e for e in ground_truth if e["qid"] in shared_qids]
+
+    if len(ground_truth) != len(submission):
+        duplicated_keys = [k for k, v in Counter([s['qid'] for s in submission]).items() if v > 1]
+        logger.warning(f"Removing duplicated_keys: {duplicated_keys}")
+        _s, already_used_qids = [], []
+        for s in submission:
+            if s['qid'] not in already_used_qids:
+                _s.append(s)
+                already_used_qids.append(s['qid'])
+
+        submission = _s
 
     eval_metrics = {}
     eval_metrics_brief = OrderedDict()
     if "pred_relevant_windows" in submission[0]:
         moment_ret_scores = eval_moment_retrieval(
-            submission, ground_truth, verbose=verbose, is_nms=is_nms)
+            submission, ground_truth,
+            verbose=verbose,
+            is_nms=is_nms,
+            is_long_nlq=is_long_nlq,
+            length_ranges=length_ranges,
+            range_names=range_names,
+            iou_thds=iou_thds,
+            top_ks=top_ks)
 
         eval_metrics.update(moment_ret_scores)
         if is_nms:
             moment_ret_scores_brief = {
-                "MR-R1@0.5 (nms)": moment_ret_scores["full"]["MR-RK"]["0.5@1"],
-                "MR-R5@0.5 (nms)": moment_ret_scores["full"]["MR-RK"]["0.5@5"],
-                "MR-R10@0.5 (nms)": moment_ret_scores["full"]["MR-RK"]["0.5@10"],
+                "MR-R1@0.5 (nms)": moment_ret_scores["full"]["MR-RK"].pop("0.5@1", None),
+                "MR-R5@0.5 (nms)": moment_ret_scores["full"]["MR-RK"].pop("0.5@5", None),
+                "MR-R10@0.5 (nms)": moment_ret_scores["full"]["MR-RK"].pop("0.5@10", None),
 
             }
         else:
             moment_ret_scores_brief = {
-                "CLS-Acc": moment_ret_scores['CLS']["accuracy"],
-                "CLS-Recall": moment_ret_scores['CLS']["recall"],
-                "CLS-Precision": moment_ret_scores['CLS']["precision"],
-                "MR-mAP": moment_ret_scores["full"]["MR-mAP"]["average"],
+                "CLS-Acc": moment_ret_scores['CLS'].pop("accuracy", None),
+                "CLS-Recall": moment_ret_scores['CLS'].pop("recall", None),
+                "CLS-Precision": moment_ret_scores['CLS'].pop("precision", None),
+                "MR-mAP": moment_ret_scores["full"]["MR-mAP"].pop("average", None),
 
-                "MR-R1@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@1"],
-                "MR-R2@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@2"],
-                "MR-R5@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@5"],
-                "MR-R10@0.5": moment_ret_scores["full"]["MR-RK"]["0.5@10"],
-                "(short) MR-R1@0.5": moment_ret_scores["short_0_10"]["MR-RK"]["0.5@1"],
-                "(middle) MR-R1@0.5": moment_ret_scores["middle_10_20"]["MR-RK"]["0.5@1"],
-                "(long) MR-R1@0.5": moment_ret_scores["long_20_30"]["MR-RK"]["0.5@1"],
+                "MR-R1@0.5": moment_ret_scores["full"]["MR-RK"].pop("0.5@1", None),
+                "MR-R2@0.5": moment_ret_scores["full"]["MR-RK"].pop("0.5@2", None),
+                "MR-R5@0.5": moment_ret_scores["full"]["MR-RK"].pop("0.5@5", None),
+                "MR-R10@0.5": moment_ret_scores["full"]["MR-RK"].pop("0.5@10", None),
             }
         eval_metrics_brief.update(
             sorted([(k, v) for k, v in moment_ret_scores_brief.items()], key=lambda x: x[0]))

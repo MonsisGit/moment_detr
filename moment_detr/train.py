@@ -19,7 +19,7 @@ from torch.utils.tensorboard import SummaryWriter
 from moment_detr.config import BaseOptions
 from moment_detr.start_end_dataset import \
     StartEndDataset, start_end_collate, prepare_batch_inputs, collate_fn_replace_corrupted
-from moment_detr.inference import eval_epoch, start_inference, setup_model
+from moment_detr.inference import eval_epoch, start_inference, setup_model, start_inference_long_nlq
 from utils.basic_utils import AverageMeter, dict_to_markdown
 from utils.model_utils import count_parameters
 
@@ -337,3 +337,5 @@ if __name__ == '__main__':
         logger.info("Evaluating model at {}".format(best_ckpt_path))
         logger.info("Input args {}".format(sys.argv[1:]))
         start_inference()
+        start_inference_long_nlq()
+

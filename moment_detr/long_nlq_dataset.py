@@ -19,13 +19,13 @@ logging.basicConfig(format="%(asctime)s.%(msecs)03d:%(levelname)s:%(name)s - %(m
 
 class LongNlqDataset(Dataset):
     def __init__(self, opt, stride=0.5,
-                 window_length=150, test_file='MAD_test.json',
+                 window_length=150,
                  video_fatures_path='CLIP_L14_frames_features_5fps.h5'):
         self.opt = opt
-        self.data_ratio = opt.data_ratio
+        self.data_ratio = opt.data_ratio_long_nlq
         self.lang_path = os.path.join(opt.t_feat_dir, opt.lang_feat_path)
         self.video_path = os.path.join(opt.v_feat_dirs[0], video_fatures_path)
-        self.anno_path = os.path.join(opt.t_feat_dir, 'annotations', test_file)
+        self.anno_path = os.path.join(opt.eval_path_long_nlq)
         data = self.get_data()
         self.lang_feats = data[0]
         self.video_feats = data[1]
@@ -42,12 +42,14 @@ class LongNlqDataset(Dataset):
         logger.info(f'LOADING: {self.video_path}')
         video_feats = h5py.File(self.video_path, 'r')
         logger.info(f'LOADING: {self.anno_path}')
+
         annos = load_jsonl(self.anno_path)[0]
         if self.data_ratio != 1:
             n_examples = int(len(annos) * self.data_ratio)
             if n_examples == 0:
                 n_examples = 1
-            annos = annos[:n_examples]
+            annos = {key: annos[key] for key in list(annos.keys())[:n_examples]}
+
             logger.info("Using {}% of the data: {} examples"
                         .format(self.data_ratio * 100, n_examples))
         return [lang_feats, video_feats, annos]
@@ -62,9 +64,16 @@ class LongNlqDataset(Dataset):
 
             model_input = self.prepare_inputs(qid=qid,
                                               anno=anno)
+
+            windows, model_input = self.get_windows(model_input=model_input,
+                                                    qid=qid)
+
             model_input = self.unfold_expand(qid=qid,
-                                             model_input=model_input)
-            target = self.get_foreground(qid=qid,
+                                             model_input=model_input,
+                                             windows=windows)
+
+            target = self.get_foreground(windows=windows,
+                                         qid=qid,
                                          model_input=model_input,
                                          anno=anno)
 
@@ -73,28 +82,38 @@ class LongNlqDataset(Dataset):
             traceback.format_stack()
             return None
 
-    def get_foreground(self, qid, model_input, anno):
-        target = {}
+    def get_windows(self, model_input, qid):
         vid_shape = model_input[qid]['src_vid'].shape
-        idx_start = torch.arange(0, int(vid_shape[0] / 2 * vid_shape[1]), self.window_length // 2).view(-1, 1)
-        idx_end = (torch.arange(0, int(vid_shape[0] / 2 * vid_shape[1]),
-                                self.window_length // 2) + self.window_length).view(-1, 1)
-        window_s = torch.cat([idx_start, idx_end], dim=1) / 5
+        idx_start = torch.arange(0, vid_shape[0] - self.window_length // 2, self.window_length // 2).clamp(
+            max=vid_shape[0] - 1).view(-1, 1)
+        idx_end = (idx_start + self.window_length)
+        window = torch.cat([idx_start, idx_end], dim=1)
+
+        pad_dim = idx_end.max() - vid_shape[0]
+        pad_zeros = torch.zeros(pad_dim, self.opt.v_feat_dim - 2)
+        model_input[qid]['src_vid'] = torch.cat([model_input[qid]['src_vid'], pad_zeros], dim=0)
+        return window, model_input
+
+    def get_foreground(self, windows, qid, model_input, anno):
+        vid_shape = model_input[qid]['src_vid'].shape
+        target = {}
+        windows_s = torch.div(windows, 5)
         moment = torch.tensor(anno['ext_timestamps']).reshape(-1, 2)
-        intersection = temporal_intersection_over_pred(moment, window_s)
+        intersection = temporal_intersection_over_pred(moment, windows_s)
         intersection_idx = torch.where(intersection == intersection.max())[-1]
         foreground = torch.zeros(vid_shape[0])
         foreground[intersection_idx] = 1
         target[qid] = dict(is_foreground=foreground,
-                           windows=window_s,
+                           windows=windows_s,
                            anno=anno)
         return target
 
-    def unfold_expand(self, qid, model_input):
-        model_input[qid]['src_vid'] = model_input[qid]['src_vid'].unfold(0, self.window_length,
-                                                                         self.window_length // 2).reshape(-1,
-                                                                                                          self.window_length,
-                                                                                                          self.opt.v_feat_dim - 2)
+    def unfold_expand(self, qid, model_input, windows):
+        # model_input[qid]['src_vid'] = model_input[qid]['src_vid'].unfold(0, self.window_length,
+        #                                                                 self.window_length // 2)
+
+        model_input[qid]['src_vid'] = torch.stack([model_input[qid]['src_vid'][w[0]:w[1]] for w in windows])
+
         model_input = self.cat_tef(qid=qid,
                                    model_input=model_input)
         model_input[qid]['src_txt'] = model_input[qid]['src_txt'].expand(model_input[qid]['src_vid'].shape[0],

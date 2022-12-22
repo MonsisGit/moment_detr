@@ -21,6 +21,7 @@ t_feat_dim=768
 bsz=256
 cuda_visible_devices=0
 data_ratio=1
+data_ratio_long_nlq=0.1
 num_workers=8
 n_epoch=100
 lr=1e-4
@@ -99,5 +100,6 @@ PYTHONPATH=$PYTHONPATH:. python moment_detr/train.py \
 --decoder_gating \
 --decoder_gating_feature ${decoder_gating_feature} \
 --detach_decoder_gating \
---decoupled_attn
+--decoupled_attn \
+--data_ratio_long_nlq ${data_ratio_long_nlq} \
 ${@:1}
