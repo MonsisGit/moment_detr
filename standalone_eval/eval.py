@@ -10,6 +10,13 @@ from standalone_eval.utils import compute_average_precision_detection, \
 import torch
 from torchmetrics.classification import BinaryRecall, BinaryAccuracy, BinaryPrecision
 
+import logging
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(format="%(asctime)s.%(msecs)03d:%(levelname)s:%(name)s - %(message)s",
+                    datefmt="%Y-%m-%d %H:%M:%S",
+                    level=logging.INFO)
+
 
 def compute_average_precision_detection_wrapper(
         input_triple, tiou_thresholds=np.linspace(0.5, 0.95, 10)):
@@ -95,17 +102,16 @@ def compute_mr_rk(submission, ground_truth, iou_thds, top_ks, is_nms=False):
                 cur_ious = compute_temporal_iou_batch_cross(
                     curr_pred_qid2window, np.array(d["relevant_windows"])
                 )[0]
+                pad_value = top_k - cur_ious.shape[0]
+                cur_ious = np.pad(cur_ious, pad_width=((0, pad_value), (0, 0)), constant_values=None)
                 iou_thd2recall_at_d.append(cur_ious)
 
         for thd in iou_thds:
             if len(iou_thd2recall_at_d) != 0:
                 if not is_nms:
-                    try:
-                        iou_thd2recall_at_k[f'{thd}@{top_k}'] = float(
-                            f"{(np.array(iou_thd2recall_at_d)[..., 0] >= thd).any(1).mean() * 100:.2f}")
-                    except:
-                        print(np.array(iou_thd2recall_at_d).shape)
-                        raise
+                    iou_thd2recall_at_k[f'{thd}@{top_k}'] = float(
+                        f"{(np.array(iou_thd2recall_at_d)[..., 0] >= thd).any(1).mean() * 100:.2f}")
+
                 else:
                     iou_temp = []
                     for iou in iou_thd2recall_at_d:
@@ -216,7 +222,7 @@ def sort_pos_predicted(submission, ground_truth, n=None):
     _submission_vstack = []
     for _s in _submission:
         _submission_vstack.extend(_s['pred_relevant_windows'])
-    _submission_sorted = sorted(_submission_vstack, key=lambda x: x[2], reverse=True)[0:n]
+    _submission_sorted = sorted(_submission_vstack, key=lambda x: x[2], reverse=True)
     _submission = [{'qid': _ground_truth[0]['qid'],
                     'pred_relevant_windows': _submission_sorted,
                     'pred_cls': [_s['pred_cls'] for _s in _submission]}]
@@ -312,7 +318,8 @@ def eval_moment_retrieval(submission, ground_truth, verbose, is_nms,
 
 def compute_ret_metrics(_submission, _ground_truth):
     if len(_submission) != len(_ground_truth):
-        print(f"Submission and ground truth have different lengths: {len(_submission)} vs {len(_ground_truth)}")
+        logger.warning(
+            f"Submission and ground truth have different lengths: {len(_submission)} vs {len(_ground_truth)}")
         _ground_truth, _submission = match_ids(_ground_truth, _submission)
 
     preds = torch.tensor([s['pred_cls'] for s in _submission]).squeeze()
@@ -460,26 +467,21 @@ def eval_submission(submission, ground_truth, verbose, match_number, is_nms,
     pred_qids = set([e["qid"] for e in submission])
     gt_qids = set([e["qid"] for e in ground_truth])
 
-    # TODO set match_number to False
-    match_number = False
-    if match_number:
-        assert pred_qids == gt_qids, \
-            f"qids in ground_truth and submission must match. " \
-            f"use `match_number=False` if you wish to disable this check"
-    else:  # only leave the items that exists in both submission and ground_truth
-        shared_qids = pred_qids.intersection(gt_qids)
-        if len(gt_qids) != len(shared_qids) or len(pred_qids) != len(shared_qids):
-            submission = [e for e in submission if e["qid"] in shared_qids]
-            ground_truth = [e for e in ground_truth if e["qid"] in shared_qids]
-        if len(ground_truth) != len(submission):
-            print(f"Warning: {len(ground_truth)} != {len(submission)}")
-            duplicated_keys = [k for k, v in Counter([s['qid'] for s in submission]).items() if v > 1]
-            print(f"removing duplicated_keys: {duplicated_keys}")
-            _s, already_used_qids = [], []
-            for s in submission:
-                if s['qid'] not in already_used_qids:
-                    _s.append(s)
-                    already_used_qids.append(s['qid'])
+    shared_qids = pred_qids.intersection(gt_qids)
+    if len(gt_qids) != len(shared_qids) or len(pred_qids) != len(shared_qids):
+        submission = [e for e in submission if e["qid"] in shared_qids]
+        ground_truth = [e for e in ground_truth if e["qid"] in shared_qids]
+
+    if len(ground_truth) != len(submission):
+        duplicated_keys = [k for k, v in Counter([s['qid'] for s in submission]).items() if v > 1]
+        logger.warning(f"Removing duplicated_keys: {duplicated_keys}")
+        _s, already_used_qids = [], []
+        for s in submission:
+            if s['qid'] not in already_used_qids:
+                _s.append(s)
+                already_used_qids.append(s['qid'])
+
+        submission = _s
 
     eval_metrics = {}
     eval_metrics_brief = OrderedDict()

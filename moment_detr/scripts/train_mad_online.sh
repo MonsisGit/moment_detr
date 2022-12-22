@@ -21,6 +21,7 @@ t_feat_dim=768
 bsz=256
 cuda_visible_devices=2
 data_ratio=1
+data_ratio_long_nlq=0.1
 num_workers=8
 n_epoch=100
 lr=1e-4
@@ -94,5 +95,6 @@ PYTHONPATH=$PYTHONPATH:. python moment_detr/train.py \
 --num_queries ${num_queries} \
 --max_before_nms ${num_queries} \
 --max_after_nms ${num_queries} \
---lw_cls ${lw_cls}
+--lw_cls ${lw_cls} \
+--data_ratio_long_nlq ${data_ratio_long_nlq} \
 ${@:1}

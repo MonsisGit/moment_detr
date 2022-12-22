@@ -302,5 +302,5 @@ def start_inference():
 
 
 if __name__ == '__main__':
-    start_inference()
+    #start_inference()
     start_inference_long_nlq()
