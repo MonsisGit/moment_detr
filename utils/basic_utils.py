@@ -24,9 +24,9 @@ def load_json(filename):
 
 
 def save_json(data, filename, save_pretty=False, sort_keys=False):
-    'TODO this is hacky'
-    if 'nfs' not in filename:
-        filename = os.path.join('/nfs/data3/goldhofer/mad_dataset/momentDETR_results/',filename)
+    #'TODO this is hacky'
+    #if 'nfs' not in filename:
+    #    filename = os.path.join('/nfs/data3/goldhofer/mad_dataset/momentDETR_results/',filename)
     try:
         with open(filename, "w") as f:
             if save_pretty:
@@ -43,16 +43,10 @@ def load_jsonl(filename):
 
 
 def save_jsonl(data, filename):
-    #TODO this is hacky
-    if 'nfs' not in filename:
-        filename = os.path.join('/nfs/data3/goldhofer/mad_dataset/momentDETR_results/',filename)
+    """data is a list"""
+    with open(filename, "w") as f:
+        f.write("\n".join([json.dumps(e) for e in data]))
 
-    try:
-        """data is a list"""
-        with open(filename, "w") as f:
-            f.write("\n".join([json.dumps(e) for e in data]))
-    except Exception as e:
-        traceback.print_exc()
 
 
 

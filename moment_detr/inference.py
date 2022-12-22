@@ -4,6 +4,7 @@ import functools
 import os
 from collections import OrderedDict, defaultdict
 from utils.basic_utils import AverageMeter
+import pathlib
 
 import torch
 import torch.nn.functional as F
@@ -12,7 +13,7 @@ from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 from ignite.handlers.param_scheduler import create_lr_scheduler_with_warmup
-
+from moment_detr.inference_long_nlq import start_inference_long_nlq
 from moment_detr.config import TestOptions
 from moment_detr.model import build_model
 from moment_detr.span_utils import span_cxw_to_xx
@@ -53,7 +54,14 @@ def eval_epoch_post_processing(submission, opt, gt_data, save_submission_filenam
     if opt.eval_split_name in ["val", "test"]:  # since test_public has no GT
         metrics = eval_submission(
             submission, gt_data,
-            verbose=opt.debug, match_number=not opt.debug
+            verbose=opt.debug,
+            match_number=not opt.debug,
+            is_nms=False,
+            is_long_nlq=False,
+            length_ranges=[[0, 10], [10, 20], [20, 30], [0, 200]],
+            range_names=["short", "middle", "long", "full"],
+            iou_thds=[0.1, 0.3, 0.5],
+            top_ks=[1, 2, 5, 10]
         )
         save_metrics_path = submission_path.replace(".jsonl", "_metrics.json")
         save_json(metrics, save_metrics_path, save_pretty=True, sort_keys=False)
@@ -75,8 +83,14 @@ def eval_epoch_post_processing(submission, opt, gt_data, save_submission_filenam
         if opt.eval_split_name == "val":
             metrics_nms = eval_submission(
                 submission_after_nms, gt_data,
-                verbose=opt.debug, match_number=not opt.debug,
-                is_nms=True
+                verbose=opt.debug,
+                match_number=not opt.debug,
+                is_nms=True,
+                is_long_nlq=False,
+                length_ranges=[[0, 10], [10, 20], [20, 30], [0, 200]],
+                range_names=["short", "middle", "long", "full"],
+                iou_thds=[0.1, 0.3, 0.5],
+                top_ks=[1, 2, 5, 10]
             )
             save_metrics_nms_path = submission_nms_path.replace(".jsonl", "_metrics.json")
             save_json(metrics_nms, save_metrics_nms_path, save_pretty=True, sort_keys=False)
@@ -137,7 +151,8 @@ def compute_mr_results(model, eval_loader, opt, epoch_i=None, criterion=None, tb
                 query=meta["query"],
                 vid=meta['vid'],
                 pred_relevant_windows=cur_ranked_preds,
-                pred_saliency_scores=saliency_scores[idx]
+                pred_saliency_scores=saliency_scores[idx],
+                pred_cls=outputs['pred_cls'].tolist()[idx][0]
             )
             mr_res.append(cur_query_pred)
 
@@ -287,4 +302,5 @@ def start_inference():
 
 
 if __name__ == '__main__':
-    start_inference()
+    #start_inference()
+    start_inference_long_nlq()

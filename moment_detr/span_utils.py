@@ -88,6 +88,7 @@ def temporal_intersection_over_pred(gt_spans, pred_spans):
     return inter_over_pred
 
 
+
 def generalized_temporal_iou(spans1, spans2):
     """
     Generalized IoU from https://giou.stanford.edu/

@@ -105,6 +105,7 @@ class StartEndDataset(Dataset):
             if self.use_video and self.using_mat_dataset:
                 model_inputs["video_feat"], meta = self._get_video_feat_by_vid(meta)  # (Lv, Dv)
                 ctx_l = len(model_inputs["video_feat"])
+                model_inputs['cls_label'] = meta['foreground']
 
             else:
                 ctx_l = self.max_v_l
@@ -126,12 +127,16 @@ class StartEndDataset(Dataset):
                         self.get_saliency_labels(meta["relevant_clip_ids"], meta["saliency_scores"], ctx_l)
                 else:
                     model_inputs["saliency_pos_labels"], model_inputs["saliency_neg_labels"] = \
-                        self.get_saliency_labels_sub_as_query(meta["relevant_windows"][0], ctx_l)  # only one gt
+                        self.get_saliency_labels_sub_as_query(meta, ctx_l)  # only one gt
             return dict(meta=meta, model_inputs=model_inputs)
         except Exception as e:
             return None
 
-    def get_saliency_labels_sub_as_query(self, gt_window, ctx_l, max_n=2):
+    def get_saliency_labels_sub_as_query(self, meta, ctx_l, max_n=2):
+        if not meta['foreground']:
+            return [-1, -1], [-1, -1]
+
+        gt_window = meta["relevant_windows"][0]
         gt_st = int(gt_window[0] / self.clip_len)
         gt_ed = max(0, min(int(gt_window[1] / self.clip_len), ctx_l) - 1)
         if gt_st > gt_ed:
@@ -148,10 +153,8 @@ class StartEndDataset(Dataset):
         if len(neg_pool) <= 0:
             return [-1, -1], [-1, -1]
         else:
-            try:
-                neg_clip_indices = random.sample(neg_pool, k=max_n)
-            except:
-                return [-1, -1], [-1, -1]
+            neg_clip_indices = random.sample(neg_pool, k=max_n)
+
         return pos_clip_indices, neg_clip_indices
 
     def get_saliency_labels(self, rel_clip_ids, scores, ctx_l, max_n=1, add_easy_negative=True):
@@ -272,15 +275,23 @@ class StartEndDataset(Dataset):
 
         if not self.is_val:
             gt_moment = self._get_gt_moment(meta)
-            window = self._sample_window(gt_moment, meta)
-            start_moment, stop_moment = self._calc_new_moment(window, gt_moment, meta)
+            window, is_foreground = self._sample_window(gt_moment, meta)
+            duration = self.clip_length_in_seconds
+            if is_foreground:
+                start_moment, stop_moment = self._calc_new_moment(window, gt_moment, meta)
+            else:
+                # if background is sampled, the network should predict zeros
+                start_moment = stop_moment = 0
 
         else:
             window = [max(meta['window'][0], 0), min(meta['window'][1], self.video_feats[meta['vid']].shape[0])]
             start_moment, stop_moment = meta["relevant_windows"][0]
+            is_foreground = meta['is_foreground']
+            duration = meta['duration']
 
         _video_feats = self.video_feats[meta['vid']][window[0]:window[1]]
-        if self.sampling_fps != self.dataset_fps:
+        # TODO this doesnt seem to work in training
+        if self.sampling_fps != self.dataset_fps and False:
             _video_feats = _video_feats[::int(self.dataset_fps / self.sampling_fps)]
 
         meta = {
@@ -288,7 +299,8 @@ class StartEndDataset(Dataset):
             'vid': meta['vid'],
             'relevant_windows': [[start_moment, stop_moment]],
             'query': meta['query'],
-            'duration': self.clip_length_in_seconds,
+            'duration': duration,
+            'foreground': is_foreground
         }
         return _video_feats, meta
 
@@ -329,10 +341,42 @@ class StartEndDataset(Dataset):
             stop_window = int(np.floor(meta['duration'] * self.dataset_fps))
             start_window = stop_window - self.clip_length_in_frames
 
-        return [start_window, stop_window]
+        # sample negative window
+        if random.random() < 0.5:
+            neg_start_window, neg_stop_window = self._sample_neg_window(start_window, stop_window, meta)
+            is_foreground = False
+            return [neg_start_window, neg_stop_window], is_foreground
+
+        else:
+            is_foreground = True
+            return [start_window, stop_window], is_foreground
+
+    def _sample_neg_window(self, start_window, stop_window, meta, recursion_counter=0):
+
+        sample_windows = [start_window, int(np.floor(meta['duration'] * self.dataset_fps)) - stop_window]
+        idx_larger_window = np.argmax(sample_windows)
+        if idx_larger_window == 0:
+            neg_start_window = max(int(0.5 * random.random() * sample_windows[idx_larger_window]), 0)
+        else:
+            neg_start_window = max(int(
+                sample_windows[idx_larger_window] * random.random() + sample_windows[0] + self.clip_length_in_frames),
+                0)
+        neg_stop_window = neg_start_window + self.clip_length_in_frames
+
+        if not neg_stop_window <= meta['duration'] * self.dataset_fps:
+            neg_stop_window = int(np.floor(meta['duration'] * self.dataset_fps))
+            neg_start_window = neg_stop_window - self.clip_length_in_frames
+
+        if recursion_counter > 5:
+            logger.info(f'Maximum Recursion depth exceeded: {recursion_counter}')
+            return None
+        if start_window <= neg_start_window <= stop_window or start_window <= neg_stop_window <= stop_window:
+            recursion_counter += 1
+            return self._sample_neg_window(start_window, stop_window, meta, recursion_counter)
+
+        return neg_start_window, neg_stop_window
 
     def _calc_new_moment(self, window, gt_moment, meta):
-
         start_window, stop_window = window
         start_idx, stop_idx = gt_moment
 
@@ -364,6 +408,9 @@ def start_end_collate(batch):
         if k in ["saliency_pos_labels", "saliency_neg_labels"]:
             batched_data[k] = torch.LongTensor([e["model_inputs"][k] for e in batch])
             continue
+        if k == 'cls_label':
+            batched_data[k] = torch.tensor([e["model_inputs"][k] for e in batch])
+            continue
         batched_data[k] = pad_sequences_1d(
             [e["model_inputs"][k] for e in batch], dtype=torch.float32, fixed_length=None)
     return batch_meta, batched_data
@@ -385,6 +432,9 @@ def prepare_batch_inputs(batched_model_inputs, device, non_blocking=False):
     if "saliency_pos_labels" in batched_model_inputs:
         for name in ["saliency_pos_labels", "saliency_neg_labels"]:
             targets[name] = batched_model_inputs[name].to(device, non_blocking=non_blocking)
+
+    if "cls_label" in batched_model_inputs:
+        targets["cls_label"] = batched_model_inputs['cls_label'].to(device, non_blocking=non_blocking)
 
     targets = None if len(targets) == 0 else targets
     return model_inputs, targets

@@ -6,7 +6,11 @@ from tqdm import tqdm
 from pathlib import Path
 import argparse
 from utils.basic_utils import dict_to_markdown
-import traceback
+
+
+def set_seed(seed, use_cuda=True):
+    random.seed(seed)
+    np.random.seed(seed)
 
 
 class MADdataset():
@@ -14,7 +18,7 @@ class MADdataset():
     def __init__(self, root, video_feat_file,
                  generated_feats_save_folder, log_folder,
                  dataset_fps, no_save, use_exact_ts,
-                 no_modify_window):
+                 no_modify_window, split):
 
         self.sampling_fps = None
         self.sampling_mode = None
@@ -29,12 +33,13 @@ class MADdataset():
         self.log_folder = log_folder
         self.annos = []
         self.old_annos = []
+        self.split = split
 
         self.discarded_data_counter = 0
         self.no_save = no_save
         self.use_exact_ts = use_exact_ts
         self.no_modify_window = no_modify_window
-        random.seed(42)
+        set_seed(2018)
 
         if not self.no_save:
             Path(f'{root}{generated_feats_save_folder}').mkdir(parents=True, exist_ok=True)
@@ -107,24 +112,38 @@ class MADdataset():
                     }
 
                     if not self.no_modify_window:
-                        video_features, moment, window = self._get_video_features(temp_dict, l2_normalize)
-                        duration = self.clip_length_in_seconds
+                        video_features, moment, window, neg_window = self._get_video_features(temp_dict,
+                                                                                              l2_normalize)
+                        windows = [window, neg_window]
+                        moments = [moment, [0,0]]
+                        qid_add = [0,len(annos)+1]
+
+                        for i in range(2):
+                            dump_dict = {
+                                'qid': str(qid_add[i]+int(k)),
+                                'vid': temp_dict['movie'],
+                                'relevant_windows': [[moments[i][0], moments[i][1]]],
+                                'query': sentence,
+                                'duration': self.clip_length_in_seconds,
+                                'window' : windows[i],
+                                'is_foreground' : not bool(i)
+                                                    }
+                            self._balance_dict(anno, dump_dict)
+
                     else:
                         moment = anno['ext_timestamps']
-                        duration = anno['movie_duration']
 
-                    dump_dict = {
-                        'qid': k,
-                        'vid': temp_dict['movie'],
-                        'relevant_windows': [[moment[0], moment[1]]],
-                        'query': sentence,
-                        'duration': duration,
-                    }
-                    if not self.no_modify_window:
-                        dump_dict['window'] = window
+                        dump_dict = {
+                            'qid': k,
+                            'vid': temp_dict['movie'],
+                            'relevant_windows': [[moment[0], moment[1]]],
+                            'query': sentence,
+                            'duration': anno['movie_duration'],
+                        }
+                        self._balance_dict(anno, dump_dict)
 
                     self.old_annos.append(temp_dict)
-                    self.annos.append(dump_dict)
+
                     if not self.no_save:
                         np.savez(f'{self.root}{self.generated_feats_save_path}{k}.npz', features=video_features)
 
@@ -138,6 +157,16 @@ class MADdataset():
 
         self._save_annos(anno_save_path)
         print(f'Discarded {self.discarded_data_counter} / {len(list(annos.items()))} data')
+
+    def _balance_dict(self, anno, dump_dict):
+
+        moment_length = anno['ext_timestamps'][1] - anno['ext_timestamps'][0]
+        if moment_length > 10 and self.split=='train':
+            multiplier = max(int(0.05 * moment_length * moment_length), 1)
+            for i in range(multiplier):
+                self.annos.append(dump_dict)
+        else:
+            self.annos.append(dump_dict)
 
     def _save_annos(self, anno_path):
         anno_save_path = f'{self.root}{anno_path}'
@@ -195,8 +224,10 @@ class MADdataset():
         assert 0 <= start_moment <= self.clip_length_in_seconds, f'start moment ({start_moment}) outside clip'
         assert 0 <= stop_moment <= self.clip_length_in_seconds, f'stop moment ({stop_moment}) outside clip'
 
+        neg_start_window, neg_stop_window = self._sample_neg_window(start_window, stop_window, anno)
+
         if self.no_save:
-            return None, [start_moment, stop_moment], [start_window, stop_window]
+            return None, [start_moment, stop_moment], [start_window, stop_window], [neg_start_window, neg_stop_window]
 
         feats = self.video_feats[anno['movie']][start_window:stop_window]
         assert feats.shape[0] == self.clip_length_in_frames
@@ -205,7 +236,7 @@ class MADdataset():
             feats = self._l2_normalize_np_array(feats)
         if self.sampling_mode != "None":
             feats = self._sampling(feats)
-        return feats, [start_moment, stop_moment],[start_window, stop_window]
+        return feats, [start_moment, stop_moment], [start_window, stop_window]
 
     def _sampling(self, feats):
         if self.sampling_mode == 'fixed':
@@ -223,6 +254,26 @@ class MADdataset():
         """np_array: np.ndarray, (*, D), where the last dim will be normalized"""
         return feats / (np.linalg.norm(feats, axis=-1, keepdims=True) + eps)
 
+    def _sample_neg_window(self, start_window, stop_window, meta):
+
+        sample_windows = [start_window, int(np.floor(meta['movie_duration'] * self.dataset_fps)) - stop_window]
+        idx_larger_window = np.argmax(sample_windows)
+        if idx_larger_window == 0:
+            neg_start_window = max(int(0.5 * random.random() * sample_windows[idx_larger_window]), 0)
+        else:
+            neg_start_window = max(int(
+                sample_windows[idx_larger_window] * random.random() + sample_windows[0] + self.clip_length_in_frames),
+                0)
+        neg_stop_window = neg_start_window + self.clip_length_in_frames
+
+        if not neg_stop_window <= meta['movie_duration'] * self.dataset_fps:
+            neg_stop_window = int(np.floor(meta['movie_duration'] * self.dataset_fps))
+            neg_start_window = neg_stop_window - self.clip_length_in_frames
+
+        if start_window <= neg_start_window <= stop_window or start_window <= neg_stop_window <= stop_window:
+            return self._sample_neg_window(start_window, stop_window, meta)
+        return neg_start_window, neg_stop_window
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -232,6 +283,7 @@ if __name__ == "__main__":
     parser.add_argument("--log_folder", type=str, default='meta_log')
     parser.add_argument("--anno_path", type=str, default="annotations/MAD_val.json")
     parser.add_argument("--anno_save_path", default="annotations/MAD_val_transformed_test.json")
+    parser.add_argument("--split", default="val")
 
     parser.add_argument("--dataset_fps", type=int, default=5)
     parser.add_argument("--clip_length_in_seconds", type=float, default=150.0)
@@ -258,7 +310,8 @@ if __name__ == "__main__":
                               dataset_fps=args.dataset_fps,
                               no_save=args.no_save,
                               use_exact_ts=args.use_exact_ts,
-                              no_modify_window=args.no_modify_window)
+                              no_modify_window=args.no_modify_window,
+                              split=args.split)
 
     preprocessor.compute_annotations(anno_path=args.anno_path,
                                      anno_save_path=args.anno_save_path,

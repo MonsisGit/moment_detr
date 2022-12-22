@@ -2,9 +2,12 @@
 """
 DETR model and criterion classes.
 """
+import copy
+
 import torch
 import torch.nn.functional as F
 from torch import nn
+from torchvision.ops import sigmoid_focal_loss
 
 from moment_detr.span_utils import generalized_temporal_iou, span_cxw_to_xx
 
@@ -50,6 +53,7 @@ class MomentDETR(nn.Module):
         self.max_v_l = max_v_l
         span_pred_dim = 2 if span_loss_type == "l1" else max_v_l * 2
         self.span_embed = MLP(hidden_dim, hidden_dim, span_pred_dim, 3)
+        self.cls_embed = MLP(hidden_dim, hidden_dim, 1, 3)
         self.class_embed = nn.Linear(hidden_dim, 2)  # 0: background, 1: foreground
         self.use_txt_pos = use_txt_pos
         self.n_input_proj = n_input_proj
@@ -83,6 +87,9 @@ class MomentDETR(nn.Module):
         self.saliency_proj = nn.Linear(hidden_dim, 1)
         self.aux_loss = aux_loss
 
+        # CLS Token
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, hidden_dim))
+
     def forward(self, src_txt, src_txt_mask, src_vid, src_vid_mask):
         """The forward expects two tensors:
                - src_txt: [batch_size, L_txt, D_txt]
@@ -100,8 +107,17 @@ class MomentDETR(nn.Module):
                - "aux_outputs": Optional, only returned when auxilary losses are activated. It is a list of
                                 dictionnaries containing the two above keys for each decoder layer.
         """
+        bs = src_vid.shape[0]
         src_vid = self.input_vid_proj(src_vid)
         src_txt = self.input_txt_proj(src_txt)
+
+        # https: // amaarora.github.io / 2021 / 01 / 18 / ViT.html
+        cls_token = self.cls_token.expand(bs, -1, -1).to(src_vid.device)
+        cls_mask = torch.ones(size=(bs, 1)).to(src_vid.device)
+
+        src_vid = torch.cat([cls_token, src_vid], dim=1)  # (bsz, cls+L_vid+L_txt, d)
+        src_vid_mask = torch.cat([cls_mask, src_vid_mask], dim=1)
+
         src = torch.cat([src_vid, src_txt], dim=1)  # (bsz, L_vid+L_txt, d)
         mask = torch.cat([src_vid_mask, src_txt_mask], dim=1).bool()  # (bsz, L_vid+L_txt)
         # TODO should we remove or use different positional embeddings to the src_txt?
@@ -109,17 +125,26 @@ class MomentDETR(nn.Module):
         pos_txt = self.txt_position_embed(src_txt) if self.use_txt_pos else torch.zeros_like(src_txt)  # (bsz, L_txt, d)
         # pos_txt = torch.zeros_like(src_txt)
         # pad zeros for txt positions
+
         pos = torch.cat([pos_vid, pos_txt], dim=1)
         # (#layers, bsz, #queries, d), (bsz, L_vid+L_txt, d)
+        # TODO remove cls from decoder part
         hs, memory = self.transformer(src, ~mask, self.query_embed.weight, pos)
         outputs_class = self.class_embed(hs)  # (#layers, batch_size, #queries, #classes)
         outputs_coord = self.span_embed(hs)  # (#layers, bsz, #queries, 2 or max_v_l * 2)
         if self.span_loss_type == "l1":
             outputs_coord = outputs_coord.sigmoid()
-        out = {'pred_logits': outputs_class[-1], 'pred_spans': outputs_coord[-1]}
 
         txt_mem = memory[:, src_vid.shape[1]:]  # (bsz, L_txt, d)
-        vid_mem = memory[:, :src_vid.shape[1]]  # (bsz, L_vid, d)
+        vid_mem = memory[:, 1:src_vid.shape[1]]  # (bsz, L_vid, d)
+
+        cls_mem = memory[:, None, 0]  # bsz, 1, d
+        outputs_cls = self.cls_embed(cls_mem)
+
+        out = {'pred_logits': outputs_class[-1],
+               'pred_spans': outputs_coord[-1],
+               'pred_cls': outputs_cls}
+
         if self.contrastive_align_loss:
             proj_queries = F.normalize(self.contrastive_align_projection_query(hs), p=2, dim=-1)
             proj_txt_mem = F.normalize(self.contrastive_align_projection_txt(txt_mem), p=2, dim=-1)
@@ -224,10 +249,15 @@ class SetCriterion(nn.Module):
         """Classification loss (NLL)
         targets dicts must contain the key "labels" containing a tensor of dim [nb_target_boxes]
         """
-        # TODO add foreground and background classifier.  use all non-matched as background.
+        # filter all background datapoints
+        is_foreground_idx = torch.where(targets['cls_label'] == True)[0]
+
         assert 'pred_logits' in outputs
-        src_logits = outputs['pred_logits']  # (batch_size, #queries, #classes=2)
-        # idx is a tuple of two 1D tensors (batch_idx, src_idx), of the same length == #objects in batch
+        # src_logits = outputs['pred_logits'][is_foreground_idx]         # idx is a tuple of two 1D tensors (batch_idx, src_idx), of the same length == #objects in batch
+        src_logits = outputs['pred_logits']
+        # indices = [i for idx,i in enumerate(indices) if idx in is_foreground_idx]
+        # (batch_size, #queries, #classes=2)
+
         idx = self._get_src_permutation_idx(indices)
         target_classes = torch.full(src_logits.shape[:2], self.background_label,
                                     dtype=torch.int64, device=src_logits.device)  # (batch_size, #queries)
@@ -239,6 +269,22 @@ class SetCriterion(nn.Module):
         if log:
             # TODO this should probably be a separate loss, not hacked in this one here
             losses['class_error'] = 100 - accuracy(src_logits[idx], self.foreground_label)[0]
+        return losses
+
+    def loss_cls(self, outputs, targets, indices, log=True):
+        """Classification loss (NLL)
+        targets dicts must contain the key "labels" containing a tensor of dim [nb_target_boxes]
+        """
+
+        cls_logits = outputs['pred_cls'].squeeze()
+        # cls_targets = torch.tensor(
+        #    [[1, 0] if is_foreground else [0, 1] for is_foreground in targets['cls_label']]).float().to(
+        #    cls_logits.device)
+
+        loss_focal = sigmoid_focal_loss(cls_logits, targets['cls_label'].float(), alpha=0.25, gamma=2)
+        # loss_ce = F.cross_entropy(cls_logits, targets['cls_label'], reduction="none")
+        losses = {'loss_cls': loss_focal.mean()}
+
         return losses
 
     def loss_saliency(self, outputs, targets, indices, log=True):
@@ -318,6 +364,7 @@ class SetCriterion(nn.Module):
             "labels": self.loss_labels,
             "contrastive_align": self.loss_contrastive_align,
             "saliency": self.loss_saliency,
+            "cls": self.loss_cls
         }
         assert loss in loss_map, f'do you really want to compute {loss} loss?'
         return loss_map[loss](outputs, targets, indices, **kwargs)
@@ -333,6 +380,7 @@ class SetCriterion(nn.Module):
 
         # Retrieve the matching between the outputs of the last layer and the targets
         # list(tuples), each tuple is (pred_span_indices, tgt_span_indices)
+
         indices = self.matcher(outputs_without_aux, targets)
         '''
         Returns:
@@ -353,7 +401,7 @@ class SetCriterion(nn.Module):
             for i, aux_outputs in enumerate(outputs['aux_outputs']):
                 indices = self.matcher(aux_outputs, targets)
                 for loss in self.losses:
-                    if "saliency" == loss:  # skip as it is only in the top layer
+                    if loss in ['saliency', 'cls']:  # skip as it is only in the top layer
                         continue
                     kwargs = {}
                     l_dict = self.get_loss(loss, aux_outputs, targets, indices, **kwargs)
@@ -437,7 +485,9 @@ def build_model(args):
     weight_dict = {"loss_span": args.span_loss_coef,
                    "loss_giou": args.giou_loss_coef,
                    "loss_label": args.label_loss_coef,
-                   "loss_saliency": args.lw_saliency}
+                   "loss_saliency": args.lw_saliency,
+                   "loss_cls": args.lw_cls}
+
     if args.contrastive_align_loss:
         weight_dict["loss_contrastive_align"] = args.contrastive_align_loss_coef
     # TODO this is a hack
@@ -447,7 +497,7 @@ def build_model(args):
             aux_weight_dict.update({k + f'_{i}': v for k, v in weight_dict.items() if k != "loss_saliency"})
         weight_dict.update(aux_weight_dict)
 
-    losses = ['spans', 'labels', 'saliency']
+    losses = ['spans', 'labels', 'saliency', 'cls']
     if args.contrastive_align_loss:
         losses += ["contrastive_align"]
     # TODO anschauen

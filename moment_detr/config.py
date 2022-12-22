@@ -30,6 +30,8 @@ class BaseOptions(object):
                             help="how many training and eval data to use. 1.0: use all, 0.1: use 10%."
                                  "Use small portion for debug purposes. Note this is different from --debug, "
                                  "which works by breaking the loops, typically they are not used together.")
+        parser.add_argument("--data_ratio_long_nlq", type=float, default=1.0,
+                            help="how many test data to use when evaluating on whole movies. 1.0: use all, 0.1: use 10%")
         parser.add_argument("--results_root", type=str, default="results")
         parser.add_argument("--exp_id", type=str, default=None, help="id of this run, required at training")
         parser.add_argument("--seed", type=int, default=2018, help="random seed")
@@ -66,6 +68,8 @@ class BaseOptions(object):
         parser.add_argument("--max_windows", type=int, default=5)
 
         parser.add_argument("--train_path", type=str, default=None)
+        parser.add_argument("--eval_path_long_nlq", type=str,
+                            default='/nfs/data3/goldhofer/mad_dataset/annotations/MAD_test.json')
         parser.add_argument("--eval_path", type=str, default=None,
                             help="Evaluating during training, for Dev set. If None, will only do training, ")
         parser.add_argument("--no_norm_vfeat", action="store_true", help="Do not do normalize video feat")
@@ -116,6 +120,8 @@ class BaseOptions(object):
                             help="l1: (center-x, width) regression. ce: (st_idx, ed_idx) classification.")
         parser.add_argument("--contrastive_align_loss", action="store_true",
                             help="Disable contrastive_align_loss between matched query spans and the text.")
+        parser.add_argument("--lw_cls", type=float, default=1.,
+                            help="weight for cls loss, set to 0 will ignore")
         # * Matcher
         parser.add_argument('--set_cost_span', default=10, type=float,
                             help="L1 span coefficient in the matching cost")
@@ -152,9 +158,10 @@ class BaseOptions(object):
         parser.add_argument("--sampling_mode", type=str, default="offline",
                             help="use offline or online sampling", choices=['online'])
         parser.add_argument("--lang_feat_path", type=str, default="CLIP_L14_language_tokens_features.h5")
-        parser.add_argument("--scheduler", type=str, default="step_lr", choices=['step_lr', 'cosnl', 'reduce_plateau'])
+        parser.add_argument("--scheduler", type=str, default="reduce_plateau",
+                            choices=['step_lr', 'cosnl', 'reduce_plateau'])
         parser.add_argument("--use_warmup", action="store_true",
-                            help="use warump for 3 epochs")
+                            help="use warmup for 3 epochs")
         parser.add_argument("--dataset_fps", type=float, default=5,
                             help="FPS sampling rate of the used dataset (MAD=5)")
         parser.add_argument("--use_exact_ts", action="store_true",
@@ -189,13 +196,13 @@ class BaseOptions(object):
             saved_options = load_json(os.path.join(opt.model_dir, opt.saved_option_filename))
             for arg in saved_options:  # use saved options to overwrite all BaseOptions args.
                 if arg not in ["results_root", "num_workers", "nms_thd", "debug",  # "max_before_nms", "max_after_nms"
-                               "max_pred_l", "min_pred_l",
+                               "max_pred_l", "min_pred_l", "data_ratio","data_ratio_long_nlq",
                                "resume", "resume_all", "no_sort_results"]:
                     setattr(opt, arg, saved_options[arg])
                     # TODO fix
             # opt.no_core_driver = True
-            if opt.eval_results_dir is not None:
-                opt.results_dir = opt.eval_results_dir
+            # if opt.eval_results_dir is not None:
+            #    opt.results_dir = opt.eval_results_dir
         else:
             if opt.exp_id is None:
                 raise ValueError("--exp_id is required for at a training option!")
@@ -240,8 +247,8 @@ class TestOptions(BaseOptions):
     def initialize(self):
         BaseOptions.initialize(self)
         # also need to specify --eval_split_name
-        #self.parser.add_argument("--eval_id", type=str, help="evaluation id", default='1')
+        self.parser.add_argument("--eval_id", type=str, help="evaluation id", default='1')
         # self.parser.add_argument("--eval_results_dir", type=str, default=None,
-        # help="dir to save results, if not set, fall back to training results_dir")
+        #                         help="dir to save results, if not set, fall back to training results_dir")
         self.parser.add_argument("--model_dir", type=str,
                                  help="dir contains the model file, will be converted to absolute path afterwards")

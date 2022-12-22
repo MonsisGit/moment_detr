@@ -41,6 +41,7 @@ class Transformer(nn.Module):
         self.d_model = d_model
         self.nhead = nhead
 
+
     def _reset_parameters(self):
         for p in self.parameters():
             if p.dim() > 1:
@@ -60,13 +61,20 @@ class Transformer(nn.Module):
         # flatten NxCxHxW to HWxNxC
         bs, l, d = src.shape
         src = src.permute(1, 0, 2)  # (L, batch_size, d)
+
         pos_embed = pos_embed.permute(1, 0, 2)   # (L, batch_size, d)
         query_embed = query_embed.unsqueeze(1).repeat(1, bs, 1)  # (#queries, batch_size, d)
 
         tgt = torch.zeros_like(query_embed)
         memory = self.encoder(src, src_key_padding_mask=mask, pos=pos_embed)  # (L, batch_size, d)
-        hs = self.decoder(tgt, memory, memory_key_padding_mask=mask,
-                          pos=pos_embed, query_pos=query_embed)  # (#layers, #queries, batch_size, d)
+
+        #remove cls token from encoder output
+        #decoder_memory = memory[1:]
+        #pos_embed = pos_embed[1:]
+        #mask = mask[:,1:]
+
+        hs = self.decoder(tgt, memory[1:], memory_key_padding_mask=mask[:,1:],
+                          pos=pos_embed[1:], query_pos=query_embed)  # (#layers, #queries, batch_size, d)
         hs = hs.transpose(1, 2)  # (#layers, batch_size, #qeries, d)
         # memory = memory.permute(1, 2, 0)  # (batch_size, d, L)
         memory = memory.transpose(0, 1)  # (batch_size, L, d)

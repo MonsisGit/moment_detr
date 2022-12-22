@@ -19,7 +19,7 @@ from torch.utils.tensorboard import SummaryWriter
 from moment_detr.config import BaseOptions
 from moment_detr.start_end_dataset import \
     StartEndDataset, start_end_collate, prepare_batch_inputs, collate_fn_replace_corrupted
-from moment_detr.inference import eval_epoch, start_inference, setup_model
+from moment_detr.inference import eval_epoch, start_inference, setup_model, start_inference_long_nlq
 from utils.basic_utils import AverageMeter, dict_to_markdown
 from utils.model_utils import count_parameters
 
@@ -86,6 +86,7 @@ def train_epoch(model, criterion, train_loader, optimizer, opt, epoch_i, tb_writ
         timer_start = time.time()
         outputs = model(**model_inputs)
         loss_dict = criterion(outputs, targets)
+        #TODO doesnt return CLS loss yet
         weight_dict = criterion.weight_dict
         losses = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
         time_meters["model_forward_time"].update(time.time() - timer_start)
@@ -215,7 +216,10 @@ def train(model, criterion, optimizer, lr_scheduler, train_dataset, val_dataset,
 
                 best_file_paths = [e.replace("latest", "best") for e in latest_file_paths]
                 for src, tgt in zip(latest_file_paths, best_file_paths):
-                    os.renames(src, tgt)
+                    try:
+                        os.renames(src, tgt)
+                    except Exception as e:
+                        print(e)
                 logger.info("The checkpoint file has been updated.")
             else:
                 es_cnt += 1
@@ -305,7 +309,7 @@ def start_training():
         eval_dataset = None
 
     model, criterion, optimizer, lr_scheduler = setup_model(opt)
-    logger.info(f"Model {model}")
+    logger.info(f"Model {model} with #Params: {count_parameters(model)}")
     # count_parameters(model)
     logger.info("Start Training...")
     train(model, criterion, optimizer, lr_scheduler, train_dataset, eval_dataset, opt)
@@ -326,3 +330,5 @@ if __name__ == '__main__':
         logger.info("Evaluating model at {}".format(best_ckpt_path))
         logger.info("Input args {}".format(sys.argv[1:]))
         start_inference()
+        start_inference_long_nlq()
+
