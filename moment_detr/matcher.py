@@ -94,6 +94,8 @@ class HungarianMatcher(nn.Module):
         # import ipdb; ipdb.set_trace()
         C = self.cost_span * cost_span + self.cost_giou * cost_giou + self.cost_class * cost_class
         C = C.view(bs, num_queries, -1).cpu()
+        if torch.isnan(C).any():
+            C[torch.isnan(C)] = 1e+5 #inf
 
         sizes = [len(v["spans"]) for v in targets]
         indices = [linear_sum_assignment(c[i]) for i, c in enumerate(C.split(sizes, -1))]

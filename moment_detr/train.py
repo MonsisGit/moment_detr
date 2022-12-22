@@ -63,7 +63,7 @@ class ModelWrapper(torch.nn.Module):
             return data
 
 
-def train_epoch(model, criterion, train_loader, optimizer, opt, epoch_i, tb_writer):
+def train_epoch(model, criterion, train_loader, optimizer, opt, epoch_i, tb_writer, temp):
     logger.info(f"[Epoch {epoch_i + 1}]")
     model.train()
     criterion.train()
@@ -77,12 +77,15 @@ def train_epoch(model, criterion, train_loader, optimizer, opt, epoch_i, tb_writ
     for batch_idx, batch in tqdm(enumerate(train_loader),
                                  desc="Training Iteration",
                                  total=num_training_examples):
+        if batch_idx % 100 == 1:
+            temp = np.maximum(temp * np.exp(-opt.annealing_rate * (batch_idx+len(train_loader)*epoch_i)), opt.min_temp)
+            # logger.info("epoch:",epoch_i,"batch:",batch_idx,"temp:",temp)
         time_meters["dataloading_time"].update(time.time() - timer_dataloading)
 
         timer_start = time.time()
         model_inputs, targets = prepare_batch_inputs(batch[1], opt.device, non_blocking=opt.pin_memory)
         time_meters["prepare_inputs_time"].update(time.time() - timer_start)
-
+        model_inputs['tmp'] = temp
         timer_start = time.time()
         outputs = model(**model_inputs)
         loss_dict = criterion(outputs, targets)
@@ -124,6 +127,8 @@ def train_epoch(model, criterion, train_loader, optimizer, opt, epoch_i, tb_writ
         d = {k: f"{getattr(meter, k):.4f}" for k in ["max", "min", "avg"]}
         logger.info(f"{name} ==> {d}")
 
+    return temp
+
 
 def train(model, criterion, optimizer, lr_scheduler, train_dataset, val_dataset, opt):
     if opt.device.type == "cuda":
@@ -156,6 +161,7 @@ def train(model, criterion, optimizer, lr_scheduler, train_dataset, val_dataset,
     save_submission_filename = "latest_{}_{}_preds.jsonl".format(opt.dset_name, opt.eval_split_name)
     nm_epochs_warmup = 3
 
+    temp = opt.max_temp
     for epoch_i in trange(start_epoch, opt.n_epoch, desc="Epoch"):
         if epoch_i > -1:
 
@@ -165,7 +171,7 @@ def train(model, criterion, optimizer, lr_scheduler, train_dataset, val_dataset,
             if opt.use_warmup and epoch_i == nm_epochs_warmup:
                 lr_scheduler.optimizer.param_groups[0]['lr'] = lr_scheduler.optimizer.defaults['lr']
 
-            train_epoch(model, criterion, train_loader, optimizer, opt, epoch_i, tb_writer)
+            temp = train_epoch(model, criterion, train_loader, optimizer, opt, epoch_i, tb_writer, temp)
 
             if not opt.scheduler == 'reduce_plateau':
                 lr_scheduler.step()
@@ -249,7 +255,7 @@ def train(model, criterion, optimizer, lr_scheduler, train_dataset, val_dataset,
             }
             torch.save(checkpoint, opt.ckpt_filepath.replace(".ckpt", f"_e{epoch_i:04d}.ckpt"))
 
-        if opt.debug:
+        if opt.debug and epoch_i == 3:
             break
 
     tb_writer.close()
@@ -296,6 +302,7 @@ def start_training():
     )
 
     dataset_config["data_path"] = opt.train_path
+    dataset_config["neg_window_ratio"] = opt.neg_window_ratio
     train_dataset = StartEndDataset(**dataset_config)
 
     if opt.eval_path is not None:
@@ -309,7 +316,7 @@ def start_training():
         eval_dataset = None
 
     model, criterion, optimizer, lr_scheduler = setup_model(opt)
-    logger.info(f"Model {model} with #Params: {count_parameters(model)}")
+    # logger.info(f"Model {model} with #Params: {count_parameters(model)}")
     # count_parameters(model)
     logger.info("Start Training...")
     train(model, criterion, optimizer, lr_scheduler, train_dataset, eval_dataset, opt)

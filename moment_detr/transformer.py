@@ -14,32 +14,62 @@ import torch
 import torch.nn.functional as F
 from torch import nn, Tensor
 
+from moment_detr.mask import Mask_c
+
 
 class Transformer(nn.Module):
 
     def __init__(self, d_model=512, nhead=8, num_encoder_layers=6,
                  num_decoder_layers=6, dim_feedforward=2048, dropout=0.1,
                  activation="relu", normalize_before=False,
-                 return_intermediate_dec=False):
+                 return_intermediate_dec=False, ret_tok_prop=False,
+                 decoder_gating=False,detach_decoder_gating=False,
+                 decoder_gating_feature="all", video_only_decoder=False,
+                 decoupled_attn=False, mask_decoder_gating=False):
         super().__init__()
 
         # TransformerEncoderLayerThin
+        self.decoupled_attn=decoupled_attn
         encoder_layer = TransformerEncoderLayer(d_model, nhead, dim_feedforward,
                                                 dropout, activation, normalize_before)
         encoder_norm = nn.LayerNorm(d_model) if normalize_before else None
         self.encoder = TransformerEncoder(encoder_layer, num_encoder_layers, encoder_norm)
-
+        # if decoupled_attn:
+        #     encoder_layer2 = TransformerEncoderLayer(d_model, nhead, dim_feedforward,
+        #                                             dropout, activation, normalize_before)
+        #     encoder_norm2 = nn.LayerNorm(d_model) if normalize_before else None
+        #     self.encoder2 = TransformerEncoder(encoder_layer2, num_encoder_layers, encoder_norm2)
+        self.ret_tok_prop=ret_tok_prop
+        if ret_tok_prop or video_only_decoder:
+            self.ret_prop_embed = nn.Linear(d_model, d_model)
+        self.decoder_gating=decoder_gating
+        if decoder_gating:
+            # self.gate_d = F.gumbel_softmax(hard=True, tau=0.66667)
+            # self.dec_gate_embed = nn.Linear(d_model, 1)
+            self.mask_c = Mask_c()
         # TransformerDecoderLayerThin
         decoder_layer = TransformerDecoderLayer(d_model, nhead, dim_feedforward,
                                                 dropout, activation, normalize_before)
         decoder_norm = nn.LayerNorm(d_model)
         self.decoder = TransformerDecoder(decoder_layer, num_decoder_layers, decoder_norm,
                                           return_intermediate=return_intermediate_dec)
+        if decoupled_attn:
+            decoder_layer2 = TransformerDecoderLayer(d_model, nhead, dim_feedforward,
+                                                    dropout, activation, normalize_before)
+            decoder_norm2 = nn.LayerNorm(d_model)
+            self.decoder2 = TransformerDecoder(decoder_layer2, num_decoder_layers, decoder_norm2,
+                                              return_intermediate=return_intermediate_dec)
 
         self._reset_parameters()
 
         self.d_model = d_model
         self.nhead = nhead
+        self.detach_decoder_gating=detach_decoder_gating
+        self.decoder_gating_feature=decoder_gating_feature
+        self.video_only_decoder=video_only_decoder
+        self.mask_decoder_gating=mask_decoder_gating
+        if video_only_decoder:
+            self.avg_pool = nn.AdaptiveAvgPool1d(1)
 
 
     def _reset_parameters(self):
@@ -47,7 +77,7 @@ class Transformer(nn.Module):
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
 
-    def forward(self, src, mask, query_embed, pos_embed):
+    def forward(self, src, mask, query_embed, pos_embed, frames):
         """
         Args:
             src: (batch_size, L, d)
@@ -65,22 +95,65 @@ class Transformer(nn.Module):
         pos_embed = pos_embed.permute(1, 0, 2)   # (L, batch_size, d)
         query_embed = query_embed.unsqueeze(1).repeat(1, bs, 1)  # (#queries, batch_size, d)
 
-        tgt = torch.zeros_like(query_embed)
+        # if self.decoupled_attn:
+        #     memory1 = self.encoder(src[:frames], src_key_padding_mask=mask[:,:frames], pos=pos_embed[:frames])  # (L, batch_size, d)
+        #     memory2 = self.encoder2(src[frames:], src_key_padding_mask=mask[:,frames:], pos=pos_embed[frames])  # (L, batch_size, d)
+        #     memory = torch.cat([memory1, memory2], dim=0)
+        # else:
         memory = self.encoder(src, src_key_padding_mask=mask, pos=pos_embed)  # (L, batch_size, d)
 
-        #remove cls token from encoder output
+        if self.decoder_gating:
+            # d = F.gumbel_softmax(self.dec_gate_embed(memory[-1]), hard=not self.training, tau=tmp)
+            if self.decoder_gating_feature=='video':
+                mask_c, prob_soft = self.mask_c(memory[:frames].permute(1,2,0))
+            elif self.decoder_gating_feature=='text':
+                mask_c, prob_soft = self.mask_c(memory[frames:-1].permute(1, 2, 0)
+                                                if self.ret_tok_prop else memory[frames:].permute(1, 2, 0))
+            elif self.decoder_gating_feature == 'ret_tok' and self.ret_tok_prop:
+                mask_c, prob_soft = self.mask_c(memory[-1, None].permute(1, 2, 0))
+            else:
+                mask_c, prob_soft = self.mask_c(memory.permute(1, 2, 0))
+
+        if self.video_only_decoder:
+            context = self.avg_pool(memory[frames:].permute(1, 2, 0))
+            tgt = self.ret_prop_embed(context[None,:,:,0]).repeat((query_embed.shape[0], 1, 1))
+        elif self.ret_tok_prop:
+            tgt = self.ret_prop_embed(memory[-1])[None].repeat((query_embed.shape[0], 1, 1))
+        else:
+            tgt = torch.zeros_like(query_embed)
+
+
+            #remove cls token from encoder output
         #decoder_memory = memory[1:]
         #pos_embed = pos_embed[1:]
         #mask = mask[:,1:]
 
-        hs = self.decoder(tgt, memory[1:], memory_key_padding_mask=mask[:,1:],
-                          pos=pos_embed[1:], query_pos=query_embed)  # (#layers, #queries, batch_size, d)
+        if self.ret_tok_prop:
+            hs = self.decoder(tgt, memory[:-1], memory_key_padding_mask=mask[:,:-1],
+                              pos=pos_embed[:-1], query_pos=query_embed)  # (#layers, #queries, batch_size, d)
+        elif self.video_only_decoder:
+            hs = self.decoder(tgt, memory[:frames], memory_key_padding_mask=mask[:, :frames],
+                              pos=pos_embed[:frames], query_pos=query_embed)  # (#layers, #queries, batch_size, d)
+        elif self.decoupled_attn:
+            tgt = self.decoder(tgt, memory[frames:], memory_key_padding_mask=mask[:,frames:],
+                              pos=pos_embed[frames:], query_pos=query_embed)
+            hs = self.decoder2(tgt[-1], memory[:frames], memory_key_padding_mask=mask[:,:frames],
+                               pos=pos_embed[:frames], query_pos=query_embed)
+        else:
+            hs = self.decoder(tgt, memory, memory_key_padding_mask=mask,
+                              pos=pos_embed, query_pos=query_embed)  # (#layers, #queries, batch_size, d)
         hs = hs.transpose(1, 2)  # (#layers, batch_size, #qeries, d)
+        if self.decoder_gating and self.mask_decoder_gating:
+            if self.detach_decoder_gating:
+                hs *= mask_c[None].detach()
+            else:
+                hs = hs * mask_c[None]
+
         # memory = memory.permute(1, 2, 0)  # (batch_size, d, L)
         memory = memory.transpose(0, 1)  # (batch_size, L, d)
-        return hs, memory
+        return hs, memory, prob_soft
 
-
+nn.Sequential()
 class TransformerEncoder(nn.Module):
 
     def __init__(self, encoder_layer, num_layers, norm=None, return_intermediate=False):
@@ -465,8 +538,14 @@ def build_transformer(args):
         num_decoder_layers=args.dec_layers,
         normalize_before=args.pre_norm,
         return_intermediate_dec=True,
+        ret_tok_prop=args.ret_tok_prop,
+        decoder_gating=args.decoder_gating,
+        detach_decoder_gating=args.detach_decoder_gating,
+        decoder_gating_feature=args.decoder_gating_feature,
+        video_only_decoder=args.video_only_decoder,
+        decoupled_attn=args.decoupled_attn,
+        mask_decoder_gating=args.mask_decoder_gating
     )
-
 
 def _get_activation_fn(activation):
     """Return an activation function given a string"""
