@@ -4,7 +4,7 @@ l2_normalize=False
 sampling_fps=5
 clip_length_in_seconds=30
 process_fraction=1
-split=test
+split=val
 
 if [[ ${sampling_mode} = None ]] && [[ ${sampling_fps} != ${dataset_fps} ]]
 then

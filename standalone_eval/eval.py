@@ -1,5 +1,5 @@
 import numpy as np
-from collections import OrderedDict, defaultdict
+from collections import OrderedDict, defaultdict, Counter
 import json
 import time
 import copy
@@ -75,7 +75,7 @@ def compute_mr_ap(submission, ground_truth, iou_thds=np.linspace(0.5, 0.95, 10),
     return iou_thd2ap
 
 
-def compute_mr_rk(submission, ground_truth, iou_thds=[0.1, 0.3, 0.5], top_ks=[1, 2, 5, 10], is_nms=False):
+def compute_mr_rk(submission, ground_truth, iou_thds, top_ks, is_nms=False):
     """If a predicted segment has IoU >= iou_thd with one of the 1st GT segment, we define it positive"""
 
     iou_thds = [float(f"{e:.2f}") for e in iou_thds]
@@ -100,8 +100,12 @@ def compute_mr_rk(submission, ground_truth, iou_thds=[0.1, 0.3, 0.5], top_ks=[1,
         for thd in iou_thds:
             if len(iou_thd2recall_at_d) != 0:
                 if not is_nms:
-                    iou_thd2recall_at_k[f'{thd}@{top_k}'] = float(
-                        f"{(np.array(iou_thd2recall_at_d)[..., 0] >= thd).any(1).mean() * 100:.2f}")
+                    try:
+                        iou_thd2recall_at_k[f'{thd}@{top_k}'] = float(
+                            f"{(np.array(iou_thd2recall_at_d)[..., 0] >= thd).any(1).mean() * 100:.2f}")
+                    except:
+                        print(np.array(iou_thd2recall_at_d).shape)
+                        raise
                 else:
                     iou_temp = []
                     for iou in iou_thd2recall_at_d:
@@ -148,10 +152,7 @@ def get_window_len(window):
 
 
 def match_ids(ground_truth, submission):
-    is_foreground_idx = [idx for idx, g in enumerate(ground_truth) if g['is_foreground']]
-    ground_truth = [g for idx, g in enumerate(ground_truth) if idx in is_foreground_idx]
-    submission = [g for idx, g in enumerate(submission) if idx in is_foreground_idx]
-
+    """Match the qids in submission to the ground truth."""
     pred_qids = set([e["qid"] for e in submission])
     gt_qids = set([e["qid"] for e in ground_truth])
     shared_qids = pred_qids.intersection(gt_qids)
@@ -172,12 +173,9 @@ def get_data_by_range(submission, ground_truth, len_range):
     """
 
     min_l, max_l = len_range
-    if min_l == 0 and max_l == 200:  # min and max l in dataset
-        return submission, ground_truth
 
     # only keep ground truth with windows in the specified length range
     # if multiple GT windows exists, we only keep the ones in the range
-    prev_qid = None
     ground_truth_in_range = []
     gt_qids_in_range = set()
     for d in ground_truth:
@@ -188,10 +186,6 @@ def get_data_by_range(submission, ground_truth, len_range):
         for w in d["relevant_windows"]:
             if min_l < get_window_len(w) <= max_l:
                 rel_windows_in_range.append(w)
-                prev_qid = d["qid"]
-
-            elif d['qid'] == prev_qid and not d["is_foreground"]:
-                rel_windows_in_range.append(w)
 
         if len(rel_windows_in_range) > 0:
             d = copy.deepcopy(d)
@@ -201,9 +195,9 @@ def get_data_by_range(submission, ground_truth, len_range):
 
     # keep only submissions for ground_truth_in_range
     submission_in_range = []
-    for idx, g in enumerate(ground_truth_in_range):
-        if g['qid'] in gt_qids_in_range and submission[idx]['qid'] in gt_qids_in_range:
-            submission_in_range.append(copy.deepcopy(submission[idx]))
+    for d in submission:
+        if d["qid"] in gt_qids_in_range:
+            submission_in_range.append(copy.deepcopy(d))
 
     return submission_in_range, ground_truth_in_range
 
@@ -230,14 +224,20 @@ def sort_pos_predicted(submission, ground_truth, n=None):
     return _submission, _ground_truth
 
 
-def remove_zero_predictions(submission, ground_truth):
+def remove_zero_predictions(submission, ground_truth, verbose):
     # removing zero windows from submission
+    nm_removed = 0
     for idx, s in enumerate(submission):
         pred_relevant_windows_wo_zeros = [_s for _s in s['pred_relevant_windows'] if _s[0:2] != [0, 0]]
         submission[idx]['pred_relevant_windows'] = pred_relevant_windows_wo_zeros
+        if verbose:
+            nm_removed += len(s['pred_relevant_windows']) - len(pred_relevant_windows_wo_zeros)
         if len(submission[idx]['pred_relevant_windows']) == 0:
             del submission[idx]
             del ground_truth[idx]
+
+    if verbose:
+        print(f"Removed {nm_removed} zero windows from submission")
 
     return submission, ground_truth
 
@@ -249,20 +249,20 @@ def eval_moment_retrieval(submission, ground_truth, verbose, is_nms,
                    enumerate(range_names)]
 
     ret_metrics = {}
-    _submission, _ground_truth = remove_zero_predictions(submission, ground_truth)
+    cls_acc, cls_recall, cls_precision = compute_ret_metrics(submission, ground_truth)
+    _submission, _ground_truth = remove_zero_predictions(submission, ground_truth, verbose)
 
     for l_range, name in zip(length_ranges, range_names):
+
         if verbose:
             start_time = time.time()
         if not is_long_nlq:
-            _submission, _ground_truth = get_data_by_range(_submission, _ground_truth, l_range)
+            _submission, _ground_truth = get_data_by_range(submission, ground_truth, l_range)
 
         if len(_submission) != 0:
             if verbose:
                 print(f"{name}: {l_range}, {len(_ground_truth)}/{len(ground_truth)}="
                       f"{100 * len(_ground_truth) / len(ground_truth):.2f}% examples.")
-
-            cls_acc, cls_recall, cls_precision = compute_ret_metrics(_submission, _ground_truth)
 
             if is_long_nlq:
                 _submission, _ground_truth = sort_pos_predicted(_submission, _ground_truth)
@@ -278,7 +278,6 @@ def eval_moment_retrieval(submission, ground_truth, verbose, is_nms,
             if verbose:
                 print(f"[eval_moment_retrieval] [{name}] {time.time() - start_time:.2f} seconds")
         else:
-            cls_acc = cls_recall = cls_precision = -1
             iou_thd2average_precision = {"0.5": -1,
                                          "0.55": -1,
                                          "0.6": -1,
@@ -302,11 +301,11 @@ def eval_moment_retrieval(submission, ground_truth, verbose, is_nms,
                                    '0.5@10': -1, }
 
         ret_metrics[name] = {"MR-mAP": iou_thd2average_precision,
-                             "MR-RK": iou_thd2recall_at_k,
-                             'CLS': {'accuracy': round(cls_acc, 2),
-                                     'recall': round(cls_recall, 2),
-                                     'precision': round(cls_precision, 2)}
+                             "MR-RK": iou_thd2recall_at_k
                              }
+    ret_metrics['CLS'] = {'accuracy': round(cls_acc, 2),
+                          'recall': round(cls_recall, 2),
+                          'precision': round(cls_precision, 2)}
 
     return ret_metrics
 
@@ -472,6 +471,15 @@ def eval_submission(submission, ground_truth, verbose, match_number, is_nms,
         if len(gt_qids) != len(shared_qids) or len(pred_qids) != len(shared_qids):
             submission = [e for e in submission if e["qid"] in shared_qids]
             ground_truth = [e for e in ground_truth if e["qid"] in shared_qids]
+        if len(ground_truth) != len(submission):
+            print(f"Warning: {len(ground_truth)} != {len(submission)}")
+            duplicated_keys = [k for k, v in Counter([s['qid'] for s in submission]).items() if v > 1]
+            print(f"removing duplicated_keys: {duplicated_keys}")
+            _s, already_used_qids = [], []
+            for s in submission:
+                if s['qid'] not in already_used_qids:
+                    _s.append(s)
+                    already_used_qids.append(s['qid'])
 
     eval_metrics = {}
     eval_metrics_brief = OrderedDict()
@@ -496,9 +504,9 @@ def eval_submission(submission, ground_truth, verbose, match_number, is_nms,
             }
         else:
             moment_ret_scores_brief = {
-                "CLS-Acc": moment_ret_scores["full"]['CLS'].pop("accuracy", None),
-                "CLS-Recall": moment_ret_scores["full"]['CLS'].pop("recall", None),
-                "CLS-Precision": moment_ret_scores["full"]['CLS'].pop("precision", None),
+                "CLS-Acc": moment_ret_scores['CLS'].pop("accuracy", None),
+                "CLS-Recall": moment_ret_scores['CLS'].pop("recall", None),
+                "CLS-Precision": moment_ret_scores['CLS'].pop("precision", None),
                 "MR-mAP": moment_ret_scores["full"]["MR-mAP"].pop("average", None),
 
                 "MR-R1@0.5": moment_ret_scores["full"]["MR-RK"].pop("0.5@1", None),

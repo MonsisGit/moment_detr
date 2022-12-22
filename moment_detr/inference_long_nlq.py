@@ -124,7 +124,7 @@ def start_inference_long_nlq():
 
 
 def eval_postprocessing(metrics, preds, opt, save_submission_filename):
-    ret_metrics = [metrics[key]['full']['CLS'] for key in metrics.keys()]
+    ret_metrics = [metrics[key]['CLS'] for key in metrics.keys()]
     mr_metrics = [metrics[key]['brief'] for key in metrics.keys()]
 
     # retrieval metrics are calculated only on foreground windows

@@ -116,10 +116,11 @@ class MADdataset():
                                                                                               l2_normalize)
                         windows = [window, neg_window]
                         moments = [moment, [0,0]]
+                        qid_add = [0,len(annos)+1]
 
                         for i in range(2):
                             dump_dict = {
-                                'qid': k,
+                                'qid': str(qid_add[i]+int(k)),
                                 'vid': temp_dict['movie'],
                                 'relevant_windows': [[moments[i][0], moments[i][1]]],
                                 'query': sentence,
