@@ -33,7 +33,7 @@ class GumbelSoftmax(nn.Module):
             return out_hard, out_hard
         out_soft, prob_soft = self.gumbel_softmax(logits)
         out_hard = ((out_soft >= 0.5).float() - out_soft).detach() + out_soft
-        return out_hard, prob_soft
+        return out_hard, out_soft
 
 
 class Mask_s(nn.Module):

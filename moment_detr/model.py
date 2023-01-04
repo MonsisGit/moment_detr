@@ -59,7 +59,7 @@ class MomentDETR(nn.Module):
         if use_ret_tok:
             self.ret_token = nn.Parameter(torch.zeros(1, 1, hidden_dim)) # 0: background, 1: foreground
             if not self.decoder_gating:
-                self.ret_embed = MLP(hidden_dim, hidden_dim, 1, 3)
+                self.ret_embed = MLP(hidden_dim, hidden_dim, 1, 3, set_focal_loss_bias = True)
         self.use_txt_pos = use_txt_pos
         self.n_input_proj = n_input_proj
         # self.foreground_thd = foreground_thd
@@ -289,9 +289,11 @@ class SetCriterion(nn.Module):
         #    [[1, 0] if is_foreground else [0, 1] for is_foreground in targets['cls_label']]).float().to(
         #    cls_logits.device)
 
+        #todo fix focal loss
         loss_focal = sigmoid_focal_loss(cls_logits, targets['cls_label'].float(), alpha=0.25, gamma=2)
         # loss_ce = F.cross_entropy(cls_logits, targets['cls_label'], reduction="none")
-        losses = {'loss_cls': loss_focal.mean()}
+        loss_ce = F.binary_cross_entropy(cls_logits, targets['cls_label'].float(), reduction="none")
+        losses = {'loss_cls': loss_ce.mean()}
 
         return losses
 
@@ -422,11 +424,15 @@ class SetCriterion(nn.Module):
 class MLP(nn.Module):
     """ Very simple multi-layer perceptron (also called FFN)"""
 
-    def __init__(self, input_dim, hidden_dim, output_dim, num_layers):
+    def __init__(self, input_dim, hidden_dim, output_dim, num_layers, set_focal_loss_bias = False):
         super().__init__()
         self.num_layers = num_layers
         h = [hidden_dim] * (num_layers - 1)
         self.layers = nn.ModuleList(nn.Linear(n, k) for n, k in zip([input_dim] + h, h + [output_dim]))
+        if set_focal_loss_bias:
+            #https://leimao.github.io/blog/Focal-Loss-Explained/
+            with torch.no_grad():
+                self.layers[-1].bias.fill_(-2.0)
 
     def forward(self, x):
         for i, layer in enumerate(self.layers):

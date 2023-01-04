@@ -40,6 +40,10 @@ def start_inference_long_nlq():
     cudnn.deterministic = False
 
     model, criterion = build_model(opt)
+    logger.info(f"Load checkpoint from {opt.resume}")
+    checkpoint = torch.load(opt.resume, map_location="cpu")
+    model.load_state_dict(checkpoint["model"])
+
     set_seed(opt.seed)
     if opt.device.type == "cuda":
         logger.info("CUDA enabled.")
@@ -58,7 +62,7 @@ def start_inference_long_nlq():
             long_nlq_dataset,
             collate_fn=collate_fn,
             batch_size=2,
-            num_workers=opt.num_workers,
+            num_workers=2,
             shuffle=False,
             pin_memory=opt.pin_memory
         )
@@ -76,6 +80,8 @@ def start_inference_long_nlq():
                 outputs = model(**_data)
 
                 prob = F.softmax(outputs["pred_logits"], -1)[..., 0, None]
+
+
                 pred_spans = span_cxw_to_xx(outputs["pred_spans"]) * _target['anno']['movie_duration']
                 pred_spans = torch.cat([pred_spans, prob], dim=2).tolist()
                 ranked_spans = [sorted(_s, key=lambda x: x[2], reverse=True) for _s in pred_spans]

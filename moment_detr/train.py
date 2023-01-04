@@ -171,6 +171,13 @@ def train(model, criterion, optimizer, lr_scheduler, train_dataset, val_dataset,
             if opt.use_warmup and epoch_i == nm_epochs_warmup:
                 lr_scheduler.optimizer.param_groups[0]['lr'] = lr_scheduler.optimizer.defaults['lr']
 
+            if opt.pretrain_encoder != 0 and epoch_i == 0:
+                for params in model.transformer.decoder.parameters():
+                    params.requires_grad = False
+            elif epoch_i == opt.pretrain_encoder:
+                for params in model.transformer.decoder.parameters():
+                    params.requires_grad = True
+
             temp = train_epoch(model, criterion, train_loader, optimizer, opt, epoch_i, tb_writer, temp)
 
             if not opt.scheduler == 'reduce_plateau':

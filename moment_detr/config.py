@@ -181,6 +181,8 @@ class BaseOptions(object):
         parser.add_argument("--video_only_decoder", action="store_true", help="video as keys, queries from text pooling")
         parser.add_argument("--decoupled_attn", action="store_true", help="separate attn for video and text")
         parser.add_argument("--neg_window_ratio", type=float, default=0.5, help="ratio of negative windows")
+        parser.add_argument("--pretrain_encoder", type=int, default=0, help="number of episodes for encoder pretraining")
+
         self.parser = parser
 
     def display_save(self, opt):
@@ -208,7 +210,7 @@ class BaseOptions(object):
             saved_options = load_json(os.path.join(opt.model_dir, opt.saved_option_filename))
             for arg in saved_options:  # use saved options to overwrite all BaseOptions args.
                 if arg not in ["results_root", "num_workers", "nms_thd", "debug",  # "max_before_nms", "max_after_nms"
-                               "max_pred_l", "min_pred_l", "data_ratio","data_ratio_long_nlq",
+                               "max_pred_l", "min_pred_l", "data_ratio","data_ratio_long_nlq", "pretrain_encoder",
                                "resume", "resume_all", "no_sort_results"]:
                     setattr(opt, arg, saved_options[arg])
                     # TODO fix

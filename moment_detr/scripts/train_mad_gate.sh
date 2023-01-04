@@ -21,7 +21,6 @@ t_feat_dim=768
 bsz=256
 cuda_visible_devices=1
 data_ratio=1
-data_ratio_long_nlq=0.1
 num_workers=8
 n_epoch=100
 lr=1e-4
@@ -35,8 +34,6 @@ max_es_cnt=30 #early stopping patience
 use_warmup=True
 nms_thd=0.3
 num_queries=10
-neg_window_ratio=0.05
-pretrain_encoder=10
 
 ## Losses
 lw_saliency=4
@@ -48,11 +45,13 @@ window_length=30
 sampling_mode=online
 sampling_fps=5
 decoder_gating_feature=text
-eval_results_dir=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_dr${data_ratio}_wl${window_length}_fps${sampling_fps}_lws${lw_saliency}_lloss${label_loss_coef}_closs${lw_cls}_no_ret_tok_detach_decoder_gating_${decoder_gating_feature}_neg.05_decoupled_attn_pretrain
+neg_window_ratio=0.5
+init_name=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_dr${data_ratio}_wl${window_length}_fps${sampling_fps}_lws${lw_saliency}_lloss${label_loss_coef}_closs${lw_cls}
+eval_results_dir=${init_name}_no_ret_tok_detach_decoder_gating_${decoder_gating_feature}_neg${neg_window_ratio}_decoupled_attn
 #eval_results_dir=CLIP_L14_bsz256_lr1e-4_dr1_wl30_fps5_lws4_lloss4_closs4_no_ret_tok_detach_decoder_gating_text_decoupled_attn
 #eval_results_dir=CLIP_L14_bsz256_lr1e-4_dr1_wl30_fps5_lws4_lloss4_closs4_ret_tok_prop_detach_decoder_gating_text_no gating
 #resume
-#ckpt_path=${root}momentDETR_results/${eval_results_dir}/model_best.ckpt
+ckpt_path=${root}momentDETR_results/${eval_results_dir}/model_best.ckpt
 
 if [ ${window_length} -gt ${max_v_l} ]; then
     echo "Window length larger than max_v_l"
@@ -102,6 +101,6 @@ PYTHONPATH=$PYTHONPATH:. python moment_detr/train.py \
 --decoder_gating \
 --decoder_gating_feature ${decoder_gating_feature} \
 --detach_decoder_gating \
---neg_window_ratio ${neg_window_ratio} \
---data_ratio_long_nlq ${data_ratio_long_nlq} \
+--decoupled_attn \
+--neg_window_ratio ${neg_window_ratio}\
 ${@:1}

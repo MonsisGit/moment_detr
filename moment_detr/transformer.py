@@ -23,13 +23,13 @@ class Transformer(nn.Module):
                  num_decoder_layers=6, dim_feedforward=2048, dropout=0.1,
                  activation="relu", normalize_before=False,
                  return_intermediate_dec=False, ret_tok_prop=False,
-                 decoder_gating=False,detach_decoder_gating=False,
+                 decoder_gating=False, detach_decoder_gating=False,
                  decoder_gating_feature="all", video_only_decoder=False,
                  decoupled_attn=False, mask_decoder_gating=False):
         super().__init__()
 
         # TransformerEncoderLayerThin
-        self.decoupled_attn=decoupled_attn
+        self.decoupled_attn = decoupled_attn
         encoder_layer = TransformerEncoderLayer(d_model, nhead, dim_feedforward,
                                                 dropout, activation, normalize_before)
         encoder_norm = nn.LayerNorm(d_model) if normalize_before else None
@@ -39,10 +39,10 @@ class Transformer(nn.Module):
         #                                             dropout, activation, normalize_before)
         #     encoder_norm2 = nn.LayerNorm(d_model) if normalize_before else None
         #     self.encoder2 = TransformerEncoder(encoder_layer2, num_encoder_layers, encoder_norm2)
-        self.ret_tok_prop=ret_tok_prop
+        self.ret_tok_prop = ret_tok_prop
         if ret_tok_prop or video_only_decoder:
             self.ret_prop_embed = nn.Linear(d_model, d_model)
-        self.decoder_gating=decoder_gating
+        self.decoder_gating = decoder_gating
         if decoder_gating:
             # self.gate_d = F.gumbel_softmax(hard=True, tau=0.66667)
             # self.dec_gate_embed = nn.Linear(d_model, 1)
@@ -55,22 +55,21 @@ class Transformer(nn.Module):
                                           return_intermediate=return_intermediate_dec)
         if decoupled_attn:
             decoder_layer2 = TransformerDecoderLayer(d_model, nhead, dim_feedforward,
-                                                    dropout, activation, normalize_before)
+                                                     dropout, activation, normalize_before)
             decoder_norm2 = nn.LayerNorm(d_model)
             self.decoder2 = TransformerDecoder(decoder_layer2, num_decoder_layers, decoder_norm2,
-                                              return_intermediate=return_intermediate_dec)
+                                               return_intermediate=return_intermediate_dec)
 
         self._reset_parameters()
 
         self.d_model = d_model
         self.nhead = nhead
-        self.detach_decoder_gating=detach_decoder_gating
-        self.decoder_gating_feature=decoder_gating_feature
-        self.video_only_decoder=video_only_decoder
-        self.mask_decoder_gating=mask_decoder_gating
+        self.detach_decoder_gating = detach_decoder_gating
+        self.decoder_gating_feature = decoder_gating_feature
+        self.video_only_decoder = video_only_decoder
+        self.mask_decoder_gating = mask_decoder_gating
         if video_only_decoder:
             self.avg_pool = nn.AdaptiveAvgPool1d(1)
-
 
     def _reset_parameters(self):
         for p in self.parameters():
@@ -92,7 +91,7 @@ class Transformer(nn.Module):
         bs, l, d = src.shape
         src = src.permute(1, 0, 2)  # (L, batch_size, d)
 
-        pos_embed = pos_embed.permute(1, 0, 2)   # (L, batch_size, d)
+        pos_embed = pos_embed.permute(1, 0, 2)  # (L, batch_size, d)
         query_embed = query_embed.unsqueeze(1).repeat(1, bs, 1)  # (#queries, batch_size, d)
 
         # if self.decoupled_attn:
@@ -104,9 +103,9 @@ class Transformer(nn.Module):
 
         if self.decoder_gating:
             # d = F.gumbel_softmax(self.dec_gate_embed(memory[-1]), hard=not self.training, tau=tmp)
-            if self.decoder_gating_feature=='video':
-                mask_c, prob_soft = self.mask_c(memory[:frames].permute(1,2,0))
-            elif self.decoder_gating_feature=='text':
+            if self.decoder_gating_feature == 'video':
+                mask_c, prob_soft = self.mask_c(memory[:frames].permute(1, 2, 0))
+            elif self.decoder_gating_feature == 'text':
                 mask_c, prob_soft = self.mask_c(memory[frames:-1].permute(1, 2, 0)
                                                 if self.ret_tok_prop else memory[frames:].permute(1, 2, 0))
             elif self.decoder_gating_feature == 'ret_tok' and self.ret_tok_prop:
@@ -116,28 +115,27 @@ class Transformer(nn.Module):
 
         if self.video_only_decoder:
             context = self.avg_pool(memory[frames:].permute(1, 2, 0))
-            tgt = self.ret_prop_embed(context[None,:,:,0]).repeat((query_embed.shape[0], 1, 1))
+            tgt = self.ret_prop_embed(context[None, :, :, 0]).repeat((query_embed.shape[0], 1, 1))
         elif self.ret_tok_prop:
             tgt = self.ret_prop_embed(memory[-1])[None].repeat((query_embed.shape[0], 1, 1))
         else:
             tgt = torch.zeros_like(query_embed)
 
-
-            #remove cls token from encoder output
-        #decoder_memory = memory[1:]
-        #pos_embed = pos_embed[1:]
-        #mask = mask[:,1:]
+            # remove cls token from encoder output
+        # decoder_memory = memory[1:]
+        # pos_embed = pos_embed[1:]
+        # mask = mask[:,1:]
 
         if self.ret_tok_prop:
-            hs = self.decoder(tgt, memory[:-1], memory_key_padding_mask=mask[:,:-1],
+            hs = self.decoder(tgt, memory[:-1], memory_key_padding_mask=mask[:, :-1],
                               pos=pos_embed[:-1], query_pos=query_embed)  # (#layers, #queries, batch_size, d)
         elif self.video_only_decoder:
             hs = self.decoder(tgt, memory[:frames], memory_key_padding_mask=mask[:, :frames],
                               pos=pos_embed[:frames], query_pos=query_embed)  # (#layers, #queries, batch_size, d)
         elif self.decoupled_attn:
-            tgt = self.decoder(tgt, memory[frames:], memory_key_padding_mask=mask[:,frames:],
-                              pos=pos_embed[frames:], query_pos=query_embed)
-            hs = self.decoder2(tgt[-1], memory[:frames], memory_key_padding_mask=mask[:,:frames],
+            tgt = self.decoder(tgt, memory[frames:], memory_key_padding_mask=mask[:, frames:],
+                               pos=pos_embed[frames:], query_pos=query_embed)
+            hs = self.decoder2(tgt[-1], memory[:frames], memory_key_padding_mask=mask[:, :frames],
                                pos=pos_embed[:frames], query_pos=query_embed)
         else:
             hs = self.decoder(tgt, memory, memory_key_padding_mask=mask,
@@ -153,7 +151,10 @@ class Transformer(nn.Module):
         memory = memory.transpose(0, 1)  # (batch_size, L, d)
         return hs, memory, prob_soft
 
+
 nn.Sequential()
+
+
 class TransformerEncoder(nn.Module):
 
     def __init__(self, encoder_layer, num_layers, norm=None, return_intermediate=False):
@@ -436,6 +437,7 @@ class TransformerDecoderLayer(nn.Module):
 
 class TransformerDecoderLayerThin(nn.Module):
     """removed intermediate layer"""
+
     def __init__(self, d_model, nhead, dim_feedforward=2048, dropout=0.1,
                  activation="relu", normalize_before=False):
         super().__init__()
@@ -523,7 +525,6 @@ class TransformerDecoderLayerThin(nn.Module):
                                  tgt_key_padding_mask, memory_key_padding_mask, pos, query_pos)
 
 
-
 def _get_clones(module, N):
     return nn.ModuleList([copy.deepcopy(module) for i in range(N)])
 
@@ -546,6 +547,7 @@ def build_transformer(args):
         decoupled_attn=args.decoupled_attn,
         mask_decoder_gating=args.mask_decoder_gating
     )
+
 
 def _get_activation_fn(activation):
     """Return an activation function given a string"""

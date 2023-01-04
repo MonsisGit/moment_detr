@@ -10,12 +10,13 @@ train_path=${root}annotations/MAD_train_SMNone_FPS5_CL30_exts_balanced.json
 eval_path=${root}annotations/MAD_val_SMNone_FPS5_CL30_exts_balanced.json
 eval_path_long_nlq=${root}annotations/MAD_test.json
 #set
-eval_results_dir=CLIP_L14_bsz256_lr1e-4_dr1_wl30_fps5_lws4_lloss4_closs4
+eval_results_dir=CLIP_L14_bsz256_lr1e-4_dr1_wl30_fps5_lws4_lloss4_closs4_no_ret_tok_detach_decoder_gating_text_neg0.1_decoupled_attn_temp
 ckpt_path=${root}momentDETR_results/${eval_results_dir}/model_best.ckpt
 v_feat_dirs=(/nfs/data3/goldhofer/mad_dataset/)
 t_feat_dir=/nfs/data3/goldhofer/mad_dataset/
 results_root=${root}momentDETR_results
 eval_split_name=test
+
 
 ######## setup video+text features
 v_feat_dim=768
@@ -25,7 +26,7 @@ sampling_fps=5
 nms_thd=0.3
 data_ratio_long_nlq=0.05
 data_ratio=0.5
-num_workers=2
+num_workers=8
 
 PYTHONPATH=$PYTHONPATH:. python moment_detr/inference.py \
   --dset_name ${dset_name} \

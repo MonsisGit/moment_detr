@@ -234,13 +234,15 @@ def remove_zero_predictions(submission, ground_truth, verbose):
     # removing zero windows from submission
     nm_removed = 0
     for idx, s in enumerate(submission):
-        pred_relevant_windows_wo_zeros = [_s for _s in s['pred_relevant_windows'] if _s[0:2] != [0, 0]]
-        submission[idx]['pred_relevant_windows'] = pred_relevant_windows_wo_zeros
-        if verbose:
-            nm_removed += len(s['pred_relevant_windows']) - len(pred_relevant_windows_wo_zeros)
-        if len(submission[idx]['pred_relevant_windows']) == 0:
-            del submission[idx]
-            del ground_truth[idx]
+        pred_relevant_windows_wo_zeros = [relevant_window for relevant_window in s['pred_relevant_windows'] if
+                                          relevant_window[0:2] != [0, 0]]
+        if len(s['pred_relevant_windows'])!=len(pred_relevant_windows_wo_zeros):
+            submission[idx]['pred_relevant_windows'] = pred_relevant_windows_wo_zeros
+            if verbose:
+                nm_removed += len(s['pred_relevant_windows']) - len(pred_relevant_windows_wo_zeros)
+            if len(submission[idx]['pred_relevant_windows']) == 0:
+                del submission[idx]
+                del ground_truth[idx]
 
     if verbose:
         print(f"Removed {nm_removed} zero windows from submission")
@@ -474,11 +476,11 @@ def eval_submission(submission, ground_truth, verbose, match_number, is_nms,
 
     if len(ground_truth) != len(submission):
         duplicated_keys = [k for k, v in Counter([s['qid'] for s in submission]).items() if v > 1]
-        logger.warning(f"Removing duplicated_keys: {duplicated_keys}")
+        logger.warning(f"Removing {len(duplicated_keys)} duplicated keys")
         _s, already_used_qids = [], []
         for s in submission:
             if s['qid'] not in already_used_qids:
-                _s.append(s)
+                _s.append(copy.deepcopy(s))
                 already_used_qids.append(s['qid'])
 
         submission = _s
