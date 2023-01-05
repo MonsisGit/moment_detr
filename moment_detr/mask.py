@@ -1,6 +1,8 @@
+import math
+import numpy as np
+
 import torch
 import torch.nn as nn
-import numpy as np
 import torch.nn.functional as F
 from torch.autograd import Variable
 
@@ -78,7 +80,7 @@ class Mask_c(nn.Module):
     '''
         Attention Mask.
     '''
-    def __init__(self, inplanes=256, outplanes=1, fc_reduction=4, eps=0.66667, bias=2):
+    def __init__(self, inplanes=256, outplanes=1, fc_reduction=4, eps=0.66667, set_focal_loss_bias=False):
         super(Mask_c, self).__init__()
         # Parameter
         self.bottleneck = inplanes // fc_reduction 
@@ -86,14 +88,19 @@ class Mask_c(nn.Module):
         self.eleNum_c = torch.Tensor([outplanes])
         # channel attention
         self.avg_pool = nn.AdaptiveAvgPool1d(1)
+        self.set_focal_loss_bias = set_focal_loss_bias
         self.atten_c = nn.Sequential(
             nn.Conv1d(inplanes, self.bottleneck, kernel_size=1, stride=1, bias=False),
             nn.BatchNorm1d(self.bottleneck),
             nn.ReLU(inplace=True),
-            nn.Conv1d(self.bottleneck, outplanes, kernel_size=1, stride=1, bias=bias>=0),
+            nn.Conv1d(self.bottleneck, outplanes, kernel_size=1, stride=1, bias=True),
+
         )
-        if bias>=0:
-            nn.init.constant_(self.atten_c[3].bias, bias)
+        if set_focal_loss_bias:
+            prior_prob = 0.01
+            bias_value = -math.log((1 - prior_prob) / prior_prob)
+            self.atten_c[-1].bias.data = torch.ones(self.atten_c[-1].bias.shape[0]) * bias_value
+
         # Gate
         self.gate_c = GumbelSoftmax(eps=eps)
         # Norm

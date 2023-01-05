@@ -46,7 +46,7 @@ class Transformer(nn.Module):
         if decoder_gating:
             # self.gate_d = F.gumbel_softmax(hard=True, tau=0.66667)
             # self.dec_gate_embed = nn.Linear(d_model, 1)
-            self.mask_c = Mask_c()
+            self.mask_c = Mask_c(set_focal_loss_bias=True)
         # TransformerDecoderLayerThin
         decoder_layer = TransformerDecoderLayer(d_model, nhead, dim_feedforward,
                                                 dropout, activation, normalize_before)

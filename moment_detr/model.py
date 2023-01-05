@@ -23,7 +23,8 @@ class MomentDETR(nn.Module):
     def __init__(self, transformer, position_embed, txt_position_embed, txt_dim, vid_dim,
                  num_queries, input_dropout, aux_loss=False,
                  contrastive_align_loss=False, contrastive_hdim=64,
-                 max_v_l=75, span_loss_type="l1", use_txt_pos=False, n_input_proj=2, use_ret_tok=False,decoder_gating=False):
+                 max_v_l=75, span_loss_type="l1", use_txt_pos=False, n_input_proj=2, use_ret_tok=False,
+                 decoder_gating=False):
         """ Initializes the model.
         Parameters:
             transformer: torch module of the transformer architecture. See transformer.py
@@ -54,12 +55,12 @@ class MomentDETR(nn.Module):
         span_pred_dim = 2 if span_loss_type == "l1" else max_v_l * 2
         self.span_embed = MLP(hidden_dim, hidden_dim, span_pred_dim, 3)
         self.class_embed = nn.Linear(hidden_dim, 2)  # 0: background, 1: foreground
-        self.use_ret_tok=use_ret_tok
+        self.use_ret_tok = use_ret_tok
         self.decoder_gating = decoder_gating
         if use_ret_tok:
-            self.ret_token = nn.Parameter(torch.zeros(1, 1, hidden_dim)) # 0: background, 1: foreground
+            self.ret_token = nn.Parameter(torch.zeros(1, 1, hidden_dim))  # 0: background, 1: foreground
             if not self.decoder_gating:
-                self.ret_embed = MLP(hidden_dim, hidden_dim, 1, 3, set_focal_loss_bias = True)
+                self.ret_embed = MLP(hidden_dim, hidden_dim, 1, 3, set_focal_loss_bias=True)
         self.use_txt_pos = use_txt_pos
         self.n_input_proj = n_input_proj
         # self.foreground_thd = foreground_thd
@@ -91,7 +92,6 @@ class MomentDETR(nn.Module):
 
         self.saliency_proj = nn.Linear(hidden_dim, 1)
         self.aux_loss = aux_loss
-
 
     def forward(self, src_txt, src_txt_mask, src_vid, src_vid_mask, tmp=1.0):
         """The forward expects two tensors:
@@ -150,10 +150,10 @@ class MomentDETR(nn.Module):
 
         out = {'pred_logits': outputs_class[-1],
                'pred_spans': outputs_coord[-1],
-               #TODO: try hard_prob=mask_c
+               # TODO: try hard_prob=mask_c
                'pred_cls': prob_soft if self.decoder_gating else (outputs_ret if self.use_ret_tok else None)}
 
-        if self.contrastive_align_loss: #TODO: Check if we can use it
+        if self.contrastive_align_loss:  # TODO: Check if we can use it
             proj_queries = F.normalize(self.contrastive_align_projection_query(hs), p=2, dim=-1)
             proj_txt_mem = F.normalize(self.contrastive_align_projection_txt(txt_mem), p=2, dim=-1)
             proj_vid_mem = F.normalize(self.contrastive_align_projection_vid(vid_mem), p=2, dim=-1)
@@ -270,7 +270,7 @@ class SetCriterion(nn.Module):
         target_classes = torch.full(src_logits.shape[:2], self.background_label,
                                     dtype=torch.int64, device=src_logits.device)  # (batch_size, #queries)
         target_classes[idx] = self.foreground_label
-        #TODO: use focal loss for class imbalance
+        # TODO: use focal loss for class imbalance
         loss_ce = F.cross_entropy(src_logits.transpose(1, 2), target_classes, self.empty_weight, reduction="none")
         losses = {'loss_label': loss_ce.mean()}
 
@@ -284,13 +284,15 @@ class SetCriterion(nn.Module):
         targets dicts must contain the key "labels" containing a tensor of dim [nb_target_boxes]
         """
 
-        cls_logits = outputs['pred_cls'].squeeze()
-        # cls_targets = torch.tensor(
-        #    [[1, 0] if is_foreground else [0, 1] for is_foreground in targets['cls_label']]).float().to(
-        #    cls_logits.device)
-
+        cls_logits = outputs['pred_cls'][:,0,0]
+        cls_targets = targets['cls_label'].float().to(cls_logits.device)
+        try:
+            if cls_logits.shape[0]!=targets['cls_label'].float().shape[0]:
+                print("cls_logits.shape[0]!=targets['cls_label'].float().shape[0]")
+        except:
+            print("cls_logits.shape[0]!=targets['cls_label'].float().shape[0]")
         loss_focal = sigmoid_focal_loss(cls_logits, targets['cls_label'].float(), alpha=0.25, gamma=2)
-        #loss_ce = F.binary_cross_entropy(cls_logits, targets['cls_label'].float(), reduction="none")
+        # loss_ce = F.binary_cross_entropy(cls_logits, targets['cls_label'].float(), reduction="none")
         losses = {'loss_cls': loss_focal.mean()}
 
         return losses
@@ -422,13 +424,14 @@ class SetCriterion(nn.Module):
 class MLP(nn.Module):
     """ Very simple multi-layer perceptron (also called FFN)"""
 
-    def __init__(self, input_dim, hidden_dim, output_dim, num_layers, set_focal_loss_bias = False):
+    def __init__(self, input_dim, hidden_dim, output_dim, num_layers, set_focal_loss_bias=False):
         super().__init__()
         self.num_layers = num_layers
         h = [hidden_dim] * (num_layers - 1)
         self.layers = nn.ModuleList(nn.Linear(n, k) for n, k in zip([input_dim] + h, h + [output_dim]))
+        self.set_focal_loss_bias = set_focal_loss_bias
         if set_focal_loss_bias:
-            #https: // github.com / fundamentalvision / Deformable - DETR / blob / 11169#a60c33333af00a4849f1808023eba96a931 / models / deformable_detr.py  # L88
+            # https://github.com/fundamentalvision/Deformable-DETR/blob/11169a60c33333af00a4849f1808023eba96a931/models/deformable_detr.py#L88
             prior_prob = 0.01
             bias_value = -math.log((1 - prior_prob) / prior_prob)
             self.layers[-1].bias.data = torch.ones(self.layers[-1].bias.shape[0]) * bias_value

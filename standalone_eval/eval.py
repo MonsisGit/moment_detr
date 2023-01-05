@@ -236,7 +236,7 @@ def remove_zero_predictions(submission, ground_truth, verbose):
     for idx, s in enumerate(submission):
         pred_relevant_windows_wo_zeros = [relevant_window for relevant_window in s['pred_relevant_windows'] if
                                           relevant_window[0:2] != [0, 0]]
-        if len(s['pred_relevant_windows'])!=len(pred_relevant_windows_wo_zeros):
+        if len(s['pred_relevant_windows']) != len(pred_relevant_windows_wo_zeros):
             submission[idx]['pred_relevant_windows'] = pred_relevant_windows_wo_zeros
             if verbose:
                 nm_removed += len(s['pred_relevant_windows']) - len(pred_relevant_windows_wo_zeros)
@@ -257,7 +257,7 @@ def eval_moment_retrieval(submission, ground_truth, verbose, is_nms,
                    enumerate(range_names)]
 
     ret_metrics = {}
-    cls_acc, cls_recall, cls_precision = compute_ret_metrics(submission, ground_truth)
+    cls_acc, cls_recall, cls_precision, f1 = compute_ret_metrics(submission, ground_truth)
     _submission, _ground_truth = remove_zero_predictions(submission, ground_truth, verbose)
 
     for l_range, name in zip(length_ranges, range_names):
@@ -313,7 +313,8 @@ def eval_moment_retrieval(submission, ground_truth, verbose, is_nms,
                              }
     ret_metrics['CLS'] = {'accuracy': round(cls_acc, 2),
                           'recall': round(cls_recall, 2),
-                          'precision': round(cls_precision, 2)}
+                          'precision': round(cls_precision, 2),
+                          "f1": round(f1, 2)}
 
     return ret_metrics
 
@@ -339,7 +340,8 @@ def compute_ret_metrics(_submission, _ground_truth):
     binary_precision = BinaryPrecision()
     precision = binary_precision(preds, targets)
 
-    return float(accuracy), float(recall), float(precision)
+    f1 = np.nan_to_num(2 * (precision * recall) / (precision + recall), nan=0)
+    return float(accuracy), float(recall), float(precision), float(f1)
 
 
 def compute_hl_hit1(qid2preds, qid2gt_scores_binary):
