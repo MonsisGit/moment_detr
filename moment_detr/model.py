@@ -2,7 +2,7 @@
 """
 DETR model and criterion classes.
 """
-import copy
+import math
 
 import torch
 import torch.nn.functional as F
@@ -289,11 +289,9 @@ class SetCriterion(nn.Module):
         #    [[1, 0] if is_foreground else [0, 1] for is_foreground in targets['cls_label']]).float().to(
         #    cls_logits.device)
 
-        #todo fix focal loss
         loss_focal = sigmoid_focal_loss(cls_logits, targets['cls_label'].float(), alpha=0.25, gamma=2)
-        # loss_ce = F.cross_entropy(cls_logits, targets['cls_label'], reduction="none")
-        loss_ce = F.binary_cross_entropy(cls_logits, targets['cls_label'].float(), reduction="none")
-        losses = {'loss_cls': loss_ce.mean()}
+        #loss_ce = F.binary_cross_entropy(cls_logits, targets['cls_label'].float(), reduction="none")
+        losses = {'loss_cls': loss_focal.mean()}
 
         return losses
 
@@ -430,9 +428,10 @@ class MLP(nn.Module):
         h = [hidden_dim] * (num_layers - 1)
         self.layers = nn.ModuleList(nn.Linear(n, k) for n, k in zip([input_dim] + h, h + [output_dim]))
         if set_focal_loss_bias:
-            #https://leimao.github.io/blog/Focal-Loss-Explained/
-            with torch.no_grad():
-                self.layers[-1].bias.fill_(-2.0)
+            #https: // github.com / fundamentalvision / Deformable - DETR / blob / 11169#a60c33333af00a4849f1808023eba96a931 / models / deformable_detr.py  # L88
+            prior_prob = 0.01
+            bias_value = -math.log((1 - prior_prob) / prior_prob)
+            self.layers[-1].bias.data = torch.ones(self.layers[-1].bias.shape[0]) * bias_value
 
     def forward(self, x):
         for i, layer in enumerate(self.layers):

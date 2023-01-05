@@ -83,6 +83,7 @@ class MADdataset():
             print(f'\nSaving to {self.root}{self.generated_feats_save_path}')
         print(f'\nProcessing {anno_path} ..')
 
+        query_ids = iter([i for i in range(len(annos)*2)])
         for k, anno in tqdm(list(annos.items())[0:int(len(annos.items()) * process_fraction)]):
             # Unpack Info ----------------------------------------------------------------
             try:
@@ -115,19 +116,19 @@ class MADdataset():
                         video_features, moment, window, neg_window = self._get_video_features(temp_dict,
                                                                                               l2_normalize)
                         windows = [window, neg_window]
-                        moments = [moment, [0,0]]
-                        qid_add = [0,len(annos)+1]
+                        moments = [moment, [0, 0]]
+                        qid_add = [0, 0.1]
 
                         for i in range(2):
                             dump_dict = {
-                                'qid': str(qid_add[i]+int(k)),
+                                'qid': str(next(query_ids)),
                                 'vid': temp_dict['movie'],
                                 'relevant_windows': [[moments[i][0], moments[i][1]]],
                                 'query': sentence,
                                 'duration': self.clip_length_in_seconds,
-                                'window' : windows[i],
-                                'is_foreground' : not bool(i)
-                                                    }
+                                'window': windows[i],
+                                'is_foreground': not bool(i)
+                            }
                             self._balance_dict(anno, dump_dict)
 
                     else:
@@ -161,7 +162,7 @@ class MADdataset():
     def _balance_dict(self, anno, dump_dict):
 
         moment_length = anno['ext_timestamps'][1] - anno['ext_timestamps'][0]
-        if moment_length > 10 and self.split=='train':
+        if moment_length > 10 and self.split == 'train':
             multiplier = max(int(0.05 * moment_length * moment_length), 1)
             for i in range(multiplier):
                 self.annos.append(dump_dict)
