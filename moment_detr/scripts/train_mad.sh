@@ -19,11 +19,11 @@ eval_split_name=val
 v_feat_dim=768
 t_feat_dim=768
 bsz=256
-cuda_visible_devices=2
+cuda_visible_devices=3
 data_ratio=1
 data_ratio_long_nlq=0.1
 num_workers=8
-n_epoch=100
+n_epoch=30
 lr=1e-4
 lr_drop=15
 clip_length=0.2
@@ -36,7 +36,7 @@ use_warmup=True
 nms_thd=0.3
 num_queries=10
 neg_window_ratio=0.05
-pretrain_encoder=20
+pretrain_encoder=0
 
 ## Losses
 lw_saliency=4
@@ -48,7 +48,7 @@ window_length=30
 sampling_mode=online
 sampling_fps=5
 decoder_gating_feature=text
-eval_results_dir=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_dr${data_ratio}_wl${window_length}_no_ret_tok_detach_decoder_gating_${decoder_gating_feature}_neg.05_decoupled_attn_pretrain
+eval_results_dir=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_dr${data_ratio}_wl${window_length}_no_ret_tok_detach_decoder_gating_${decoder_gating_feature}_neg.05_2
 
 #resume
 #ckpt_path=${root}momentDETR_results/${eval_results_dir}/model_best.ckpt

@@ -159,7 +159,7 @@ def train(model, criterion, optimizer, lr_scheduler, train_dataset, val_dataset,
     else:
         start_epoch = opt.start_epoch
     save_submission_filename = "latest_{}_{}_preds.jsonl".format(opt.dset_name, opt.eval_split_name)
-    nm_epochs_warmup = 3
+    nm_epochs_warmup = 1
 
     temp = opt.max_temp
     for epoch_i in trange(start_epoch, opt.n_epoch, desc="Epoch"):

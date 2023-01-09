@@ -34,6 +34,20 @@ def set_seed(seed, use_cuda=True):
         torch.cuda.manual_seed_all(seed)
 
 
+def sort_spans(i, outputs, windows, prob):
+    scaled_spans = torch.zeros_like(outputs["pred_spans"])
+    for idx, output in enumerate(outputs["pred_spans"]):
+        start_window = windows[i][idx, 0]
+        window_length = windows[i][idx, 1] - windows[i][idx, 0]
+        for idxx, out in enumerate(output):
+            if not torch.isclose(input=out.cpu(), other=torch.tensor([0.0, 0.0]).float(), atol=1e-4).all():
+                scaled_spans[idx, idxx] = start_window + span_cxw_to_xx(out) * window_length
+
+    pred_spans = torch.cat([scaled_spans, prob], dim=2).tolist()
+    ranked_spans = [sorted(_s, key=lambda x: x[2], reverse=True) for _s in pred_spans]
+    return ranked_spans
+
+
 def start_inference_long_nlq():
     opt = TestOptions().parse()
     cudnn.benchmark = True
@@ -68,7 +82,7 @@ def start_inference_long_nlq():
         )
         preds, metrics = {}, {}
         for batch in tqdm(long_nlq_loader):
-            target, data, qid = batch
+            target, data, qid, windows = batch
 
             for i in range(len(data)):
                 for key in data[i].keys():
@@ -80,14 +94,10 @@ def start_inference_long_nlq():
                 outputs = model(**_data)
 
                 prob = F.softmax(outputs["pred_logits"], -1)[..., 0, None]
-
-
-                pred_spans = span_cxw_to_xx(outputs["pred_spans"]) * _target['anno']['movie_duration']
-                pred_spans = torch.cat([pred_spans, prob], dim=2).tolist()
-                ranked_spans = [sorted(_s, key=lambda x: x[2], reverse=True) for _s in pred_spans]
+                sorted_spans = sort_spans(i, outputs, windows, prob)
 
                 try:
-                    _pred = {'pred_spans': ranked_spans,
+                    _pred = {'pred_spans': sorted_spans,
                              'pred_cls': outputs['pred_cls'][:, 0]}
 
                     # R@K should be calculated for windows, which are predicted foreground
@@ -109,10 +119,10 @@ def start_inference_long_nlq():
                                                       range_names=['full'],
                                                       is_nms=True,
                                                       iou_thds=[0.1, 0.3, 0.5],
-                                                      top_ks=[1,2, 5, 10, 50, 100],
+                                                      top_ks=[1, 2, 5, 10, 50, 100],
                                                       match_number=False)
 
-                    #_submission, _ground_truth = remove_zero_predictions(_submission, _ground_truth)
+                    # _submission, _ground_truth = remove_zero_predictions(_submission, _ground_truth)
                     _submission, _ground_truth = sort_pos_predicted(_submission, _ground_truth, n=100)
 
                     preds[qid[i]] = {'_ground_truth': _ground_truth,

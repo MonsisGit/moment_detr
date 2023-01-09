@@ -208,9 +208,12 @@ def get_data_by_range(submission, ground_truth, len_range):
     return submission_in_range, ground_truth_in_range
 
 
-def sort_pos_predicted(submission, ground_truth, n=None):
+def sort_pos_predicted(submission, ground_truth):
     # moment retrieval recall is only calculated on positive predicted windows
-    pred_proba = torch.tensor([s['pred_cls'] for s in submission]).sigmoid()
+    #TODO is this using gating, then no sigmoid
+    #sort first using 'pred_cls' with ouzt soft
+
+    pred_proba = torch.tensor([s['pred_cls'] for s in submission])
     predicted_foreground_idx = (torch.where(pred_proba > 0.5)[0]).cpu()
     if predicted_foreground_idx.shape[0] == 0:
         return [], []
@@ -234,6 +237,7 @@ def remove_zero_predictions(submission, ground_truth, verbose):
     # removing zero windows from submission
     nm_removed = 0
     for idx, s in enumerate(submission):
+        #TODO remove almost zero predictions
         pred_relevant_windows_wo_zeros = [relevant_window for relevant_window in s['pred_relevant_windows'] if
                                           relevant_window[0:2] != [0, 0]]
         if len(s['pred_relevant_windows']) != len(pred_relevant_windows_wo_zeros):

@@ -77,7 +77,7 @@ class LongNlqDataset(Dataset):
                                          model_input=model_input,
                                          anno=anno)
 
-            return model_input, target
+            return model_input, target, windows
         except:
             traceback.format_stack()
             return None
@@ -152,8 +152,10 @@ def start_end_collate(batch):
     batch_keys = [list(b[1].keys())[0] for b in batch]
     batched_meta = [b[1][batch_keys[idx]] for idx, b in enumerate(batch)]
     batched_data = [b[0][batch_keys[idx]] for idx, b in enumerate(batch)]
+    batched_windows = [b[2] for b in batch]
 
-    return batched_meta, batched_data, batch_keys
+
+    return batched_meta, batched_data, batch_keys, batched_windows
 
 
 def collate_fn_replace_corrupted(batch, dataset):

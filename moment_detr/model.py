@@ -286,12 +286,8 @@ class SetCriterion(nn.Module):
 
         cls_logits = outputs['pred_cls'][:,0,0]
         cls_targets = targets['cls_label'].float().to(cls_logits.device)
-        try:
-            if cls_logits.shape[0]!=targets['cls_label'].float().shape[0]:
-                print("cls_logits.shape[0]!=targets['cls_label'].float().shape[0]")
-        except:
-            print("cls_logits.shape[0]!=targets['cls_label'].float().shape[0]")
-        loss_focal = sigmoid_focal_loss(cls_logits, targets['cls_label'].float(), alpha=0.25, gamma=2)
+
+        loss_focal = sigmoid_focal_loss(cls_logits, targets['cls_label'].float(), alpha=0.25, gamma=3)
         # loss_ce = F.binary_cross_entropy(cls_logits, targets['cls_label'].float(), reduction="none")
         losses = {'loss_cls': loss_focal.mean()}
 
