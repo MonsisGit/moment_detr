@@ -213,7 +213,6 @@ class BaseOptions(object):
                                "max_pred_l", "min_pred_l", "pretrain_encoder",
                                "resume", "resume_all", "no_sort_results"]:
                     setattr(opt, arg, saved_options[arg])
-                    # TODO fix
             # opt.no_core_driver = True
             # if opt.eval_results_dir is not None:
             #    opt.results_dir = opt.eval_results_dir

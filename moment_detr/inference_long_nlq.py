@@ -123,7 +123,7 @@ def start_inference_long_nlq():
                                                       match_number=False)
 
                     # _submission, _ground_truth = remove_zero_predictions(_submission, _ground_truth)
-                    _submission, _ground_truth = sort_pos_predicted(_submission, _ground_truth, n=100)
+                    _submission, _ground_truth = sort_pos_predicted(_submission, _ground_truth)
 
                     preds[qid[i]] = {'_ground_truth': _ground_truth,
                                      '_submission': _submission}

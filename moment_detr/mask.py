@@ -172,7 +172,6 @@ class Mask_c_2d(nn.Module):
 class CNN(nn.Module):
     def __init__(self, in_c):
         super().__init__()
-        #TODO
         self.conv1 = nn.Conv1d(in_c, in_c, 3, 1)
         self.pool = nn.MaxPool1d(2, 2)
         self.conv2 = nn.Conv1d(in_c, in_c, 3, 1)

@@ -284,7 +284,7 @@ class SetCriterion(nn.Module):
         targets dicts must contain the key "labels" containing a tensor of dim [nb_target_boxes]
         """
 
-        cls_logits = outputs['pred_cls'][:,0,0]
+        cls_logits = outputs['pred_cls'][:, 0]
         cls_targets = targets['cls_label'].float().to(cls_logits.device)
 
         loss_focal = sigmoid_focal_loss(cls_logits, targets['cls_label'].float(), alpha=0.25, gamma=3)
