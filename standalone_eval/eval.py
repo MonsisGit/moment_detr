@@ -210,16 +210,14 @@ def get_data_by_range(submission, ground_truth, len_range):
 
 def sort_pos_predicted(submission, ground_truth):
 
-    #pred_proba = torch.tensor([s['pred_cls'] for s in submission])
-    #predicted_foreground_idx = (torch.where(pred_proba > 0.5)[0]).cpu()
-    #if predicted_foreground_idx.shape[0] == 0:
-    #    return [], []
-    #_submission = [submission[i] for i in predicted_foreground_idx]
+    pred_proba = torch.tensor([s['pred_cls'] for s in submission])
+    predicted_foreground_idx = (torch.where(pred_proba > 0.5)[0]).cpu()
+    if predicted_foreground_idx.shape[0] == 0:
+        return [], []
+    _submission = [submission[i] for i in predicted_foreground_idx]
     # can be any list entry of ground truth, since all are same
-    #_ground_truth = [ground_truth[0]]
+    _ground_truth = [ground_truth[0]]
 
-    _submission = submission
-    _ground_truth = ground_truth[0]
 
     # predicted windows are sorted by confidence
     _submission_vstack = []

@@ -48,6 +48,8 @@ def sort_spans(i, outputs, windows, prob):
     return ranked_spans
 
 
+
+
 def start_inference_long_nlq():
     opt = TestOptions().parse()
     cudnn.benchmark = True
@@ -75,8 +77,8 @@ def start_inference_long_nlq():
         long_nlq_loader = DataLoader(
             long_nlq_dataset,
             collate_fn=collate_fn,
-            batch_size=2,
-            num_workers=2,
+            batch_size=4,
+            num_workers=4,
             shuffle=False,
             pin_memory=opt.pin_memory
         )
@@ -95,6 +97,7 @@ def start_inference_long_nlq():
 
                 prob = F.softmax(outputs["pred_logits"], -1)[..., 0, None]
                 sorted_spans = sort_spans(i, outputs, windows, prob)
+                sorted_spans2 = sort_spans2(i, outputs, windows, prob)
 
                 try:
                     _pred = {'pred_spans': sorted_spans,

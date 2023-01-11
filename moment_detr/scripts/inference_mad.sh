@@ -21,10 +21,10 @@ eval_split_name=test
 ######## setup video+text features
 v_feat_dim=768
 t_feat_dim=768
-device=0
+device=2
 sampling_fps=5
 nms_thd=0.3
-data_ratio_long_nlq=0.01
+data_ratio_long_nlq=0.1
 data_ratio=0.5
 num_workers=8
 
