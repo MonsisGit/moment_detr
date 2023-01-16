@@ -14,6 +14,7 @@ from moment_detr.span_utils import span_cxw_to_xx
 from moment_detr.long_nlq_dataset import LongNlqDataset, collate_fn_replace_corrupted
 from standalone_eval.eval import eval_submission, sort_pos_predicted, remove_zero_predictions
 from utils.basic_utils import save_json
+from moment_detr.clip_similarity import clip_similarity, compute_metrics
 
 import torch
 import torch.backends.cudnn as cudnn
@@ -48,12 +49,11 @@ def sort_spans(i, outputs, windows, prob):
     return ranked_spans
 
 
-
-
 def start_inference_long_nlq():
     opt = TestOptions().parse()
     cudnn.benchmark = True
     cudnn.deterministic = False
+    use_clip_only = True
 
     model, criterion = build_model(opt)
     logger.info(f"Load checkpoint from {opt.resume}")
@@ -93,13 +93,12 @@ def start_inference_long_nlq():
             for i in range(len(data)):
                 _target = target[i]
                 _data = data[i]
-                outputs = model(**_data)
+                if not use_clip_only:
+                    outputs = model(**_data)
 
-                prob = F.softmax(outputs["pred_logits"], -1)[..., 0, None]
-                sorted_spans = sort_spans(i, outputs, windows, prob)
-                sorted_spans2 = sort_spans2(i, outputs, windows, prob)
+                    prob = F.softmax(outputs["pred_logits"], -1)[..., 0, None]
+                    sorted_spans = sort_spans(i, outputs, windows, prob)
 
-                try:
                     _pred = {'pred_spans': sorted_spans,
                              'pred_cls': outputs['pred_cls'][:, 0]}
 
@@ -130,16 +129,35 @@ def start_inference_long_nlq():
 
                     preds[qid[i]] = {'_ground_truth': _ground_truth,
                                      '_submission': _submission}
-                except:
-                    logger.info("Failed to calculate metrics for qid: {}".format(qid[i]))
-                    logger.info(traceback.format_exc())
+
+                else:
+                    top_ks = [1, 3, 5, 7]
+                    for k in top_ks:
+                        sims = clip_similarity(**_data, k=k)
+                        metrics = compute_metrics(sims, _target, k, top_ks, metrics)
 
             if opt.debug:
                 break
 
-        eval_postprocessing(metrics, preds,
-                            opt=opt,
-                            save_submission_filename=save_submission_filename)
+        if not use_clip_only:
+            eval_postprocessing(metrics, preds,
+                                opt=opt,
+                                save_submission_filename=save_submission_filename)
+        else:
+            eval_postprocessing_clip(metrics,
+                                     opt,
+                                     save_submission_filename='clip_inference.jsonl')
+
+
+def eval_postprocessing_clip(metrics, opt, save_submission_filename):
+    for k_key in metrics.keys():
+        for m_key in metrics[k_key].keys():
+            metrics[k_key][m_key] = np.mean(metrics[k_key][m_key]).round(4)
+
+    logger.info("\naverage metrics\n{}".format(pprint.pformat(metrics, indent=4)))
+    submission_path = os.path.join(opt.results_dir, save_submission_filename)
+    save_metrics_path = submission_path.replace(".jsonl", "_metrics.json")
+    save_json(metrics, save_metrics_path, save_pretty=True, sort_keys=False)
 
 
 def eval_postprocessing(metrics, preds, opt, save_submission_filename):
