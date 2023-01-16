@@ -19,6 +19,7 @@ from moment_detr.model import build_model
 from moment_detr.span_utils import span_cxw_to_xx
 from moment_detr.start_end_dataset import StartEndDataset, start_end_collate, prepare_batch_inputs, \
     collate_fn_replace_corrupted
+from moment_detr.clip_decoder_inference import clip_decoder_inference
 from moment_detr.postprocessing_moment_detr import PostProcessorDETR
 from standalone_eval.eval import eval_submission
 from utils.basic_utils import save_jsonl, save_json
@@ -304,3 +305,4 @@ def start_inference():
 if __name__ == '__main__':
     #start_inference()
     start_inference_long_nlq()
+    #clip_decoder_inference()

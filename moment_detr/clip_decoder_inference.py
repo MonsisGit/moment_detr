@@ -14,7 +14,7 @@ from moment_detr.span_utils import span_cxw_to_xx
 from moment_detr.long_nlq_dataset import LongNlqDataset, collate_fn_replace_corrupted
 from standalone_eval.eval import eval_submission, sort_pos_predicted, remove_zero_predictions
 from utils.basic_utils import save_json
-from moment_detr.clip_similarity import clip_similarity, compute_metrics
+from moment_detr.clip_similarity import clip_filter_proposals
 
 import torch
 import torch.backends.cudnn as cudnn
@@ -49,11 +49,13 @@ def sort_spans(i, outputs, windows, prob):
     return ranked_spans
 
 
-def start_inference_long_nlq():
+def clip_decoder_inference():
     opt = TestOptions().parse()
     cudnn.benchmark = True
     cudnn.deterministic = False
-    use_clip_only = True
+
+    pooling_topk = 7
+    topk = 10
 
     model, criterion = build_model(opt)
     logger.info(f"Load checkpoint from {opt.resume}")
@@ -77,14 +79,15 @@ def start_inference_long_nlq():
         long_nlq_loader = DataLoader(
             long_nlq_dataset,
             collate_fn=collate_fn,
-            batch_size=4,
-            num_workers=4,
+            batch_size=2,
+            num_workers=2,
             shuffle=False,
             pin_memory=opt.pin_memory
         )
-        preds, metrics = {}, {}
+        preds, metrics, clip_metrics = {}, {}, {}
         for batch in tqdm(long_nlq_loader):
             target, data, qid, windows = batch
+
 
             for i in range(len(data)):
                 for key in data[i].keys():
@@ -93,60 +96,60 @@ def start_inference_long_nlq():
             for i in range(len(data)):
                 _target = target[i]
                 _data = data[i]
-                if not use_clip_only:
-                    outputs = model(**_data)
 
-                    prob = F.softmax(outputs["pred_logits"], -1)[..., 0, None]
-                    sorted_spans = sort_spans(i, outputs, windows, prob)
+                _data, _target, clip_metrics, windows = clip_filter_proposals(_data,
+                                                                              _target,
+                                                                              pooling_topk,
+                                                                              topk,
+                                                                              clip_metrics,
+                                                                              windows,
+                                                                              i)
 
-                    _pred = {'pred_spans': sorted_spans,
-                             'pred_cls': outputs['pred_cls'][:, 0]}
+                outputs = model(**_data)
 
-                    # R@K should be calculated for windows, which are predicted foreground
-                    # Retrieval metrics are calculated on foreground windows only
-                    _ground_truth = [{'qid': qid[i],
-                                      'relevant_windows': [_target['anno']['ext_timestamps']],
-                                      'is_foreground': bool(_is_foreground)} for _is_foreground in
-                                     _target['is_foreground']]
+                prob = F.softmax(outputs["pred_logits"], -1)[..., 0, None]
+                sorted_spans = sort_spans(i, outputs, windows, prob)
 
-                    _submission = [{'qid': qid[i],
-                                    'pred_relevant_windows': _span,
-                                    'pred_cls': [float(_pred['pred_cls'][idx, 0])]} for idx, _span in
-                                   enumerate(_pred['pred_spans'])]
+                _pred = {'pred_spans': sorted_spans,
+                         'pred_cls': outputs['pred_cls'][:, 0]}
 
-                    metrics[qid[i]] = eval_submission(_submission, _ground_truth,
-                                                      verbose=False,
-                                                      is_long_nlq=True,
-                                                      length_ranges=[[0, 200]],
-                                                      range_names=['full'],
-                                                      is_nms=True,
-                                                      iou_thds=[0.1, 0.3, 0.5],
-                                                      top_ks=[1, 2, 5, 10, 50, 100],
-                                                      match_number=False)
+                # R@K should be calculated for windows, which are predicted foreground
+                # Retrieval metrics are calculated on foreground windows only
+                _ground_truth = [{'qid': qid[i],
+                                  'relevant_windows': [_target['anno']['ext_timestamps']],
+                                  'is_foreground': bool(_is_foreground)} for _is_foreground in
+                                 _target['is_foreground']]
 
-                    # _submission, _ground_truth = remove_zero_predictions(_submission, _ground_truth)
-                    _submission, _ground_truth = sort_pos_predicted(_submission, _ground_truth)
+                _submission = [{'qid': qid[i],
+                                'pred_relevant_windows': _span,
+                                'pred_cls': [float(_pred['pred_cls'][idx])]} for idx, _span in
+                               enumerate(_pred['pred_spans'])]
 
-                    preds[qid[i]] = {'_ground_truth': _ground_truth,
-                                     '_submission': _submission}
+                metrics[qid[i]] = eval_submission(_submission, _ground_truth,
+                                                  verbose=False,
+                                                  is_long_nlq=True,
+                                                  length_ranges=[[0, 200]],
+                                                  range_names=['full'],
+                                                  is_nms=True,
+                                                  iou_thds=[0.1, 0.3, 0.5],
+                                                  top_ks=[1, 2, 5, 10, 50, 100],
+                                                  match_number=False)
 
-                else:
-                    top_ks = [9, 11]
-                    for k in top_ks:
-                        sims = clip_similarity(**_data, k=k)
-                        metrics = compute_metrics(sims, _target, k, top_ks, metrics)
+                # _submission, _ground_truth = remove_zero_predictions(_submission, _ground_truth)
+                _submission, _ground_truth = sort_pos_predicted(_submission, _ground_truth)
+
+                preds[qid[i]] = {'_ground_truth': _ground_truth,
+                                 '_submission': _submission}
 
             if opt.debug:
                 break
 
-        if not use_clip_only:
-            eval_postprocessing(metrics, preds,
-                                opt=opt,
-                                save_submission_filename=save_submission_filename)
-        else:
-            eval_postprocessing_clip(metrics,
-                                     opt,
-                                     save_submission_filename='clip_inference.jsonl')
+        eval_postprocessing(metrics, preds,
+                            opt=opt,
+                            save_submission_filename=save_submission_filename)
+        eval_postprocessing_clip(metrics,
+                                 opt,
+                                 save_submission_filename='clip_inference.jsonl')
 
 
 def eval_postprocessing_clip(metrics, opt, save_submission_filename):

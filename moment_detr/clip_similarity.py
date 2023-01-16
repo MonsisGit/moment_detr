@@ -51,3 +51,28 @@ def compute_metrics(sims, ground_truth, k, top_ks, metrics):
         metrics[str(k)][metric].append(float(torch.stack(temp).any(dim=0)) * 100)
 
     return metrics
+
+
+def clip_filter_proposals(_data, _target, pooling_topk, topk, metrics, windows, i):
+    sims = clip_similarity(**_data, k=pooling_topk)
+    metrics = compute_metrics(sims, _target, k=pooling_topk, top_ks=[pooling_topk], metrics=metrics)
+    topk_inds = torch.topk(sims, topk, dim=0)[1]
+
+    for key in _data.keys():
+        if not 'mask' in key:
+            topk_inds_gather = topk_inds.unsqueeze(-1).unsqueeze(-1).expand(topk_inds.shape[0],
+                                                                            _data[key].shape[1],
+                                                                            _data[key].shape[2])
+            _data[key] = torch.gather(_data[key], dim=0, index=topk_inds_gather)
+        else:
+            topk_inds_gather = topk_inds.unsqueeze(-1).expand(topk_inds.shape[0],
+                                                              _data[key].shape[1])
+            _data[key] = torch.gather(_data[key], dim=0, index=topk_inds_gather)
+
+    _target['is_foreground'] = _target['is_foreground'][topk_inds.cpu()]
+    _target['windows'] = torch.gather(_target['windows'], dim=0,
+                                      index=topk_inds.cpu().unsqueeze(-1).expand(topk_inds.shape[0], 2))
+
+    windows[i] = windows[i][topk_inds.cpu(), :]
+
+    return _data, _target, metrics, windows
