@@ -110,8 +110,7 @@ def clip_decoder_inference():
                 prob = F.softmax(outputs["pred_logits"], -1)[..., 0, None]
                 sorted_spans = sort_spans(i, outputs, windows, prob)
 
-                _pred = {'pred_spans': sorted_spans,
-                         'pred_cls': outputs['pred_cls'][:, 0]}
+                _pred = {'pred_spans': sorted_spans}
 
                 # R@K should be calculated for windows, which are predicted foreground
                 # Retrieval metrics are calculated on foreground windows only
@@ -121,8 +120,7 @@ def clip_decoder_inference():
                                  _target['is_foreground']]
 
                 _submission = [{'qid': qid[i],
-                                'pred_relevant_windows': _span,
-                                'pred_cls': [float(_pred['pred_cls'][idx])]} for idx, _span in
+                                'pred_relevant_windows': _span} for idx, _span in
                                enumerate(_pred['pred_spans'])]
 
                 metrics[qid[i]] = eval_submission(_submission, _ground_truth,
@@ -147,7 +145,7 @@ def clip_decoder_inference():
         eval_postprocessing(metrics, preds,
                             opt=opt,
                             save_submission_filename=save_submission_filename)
-        eval_postprocessing_clip(metrics,
+        eval_postprocessing_clip(clip_metrics,
                                  opt,
                                  save_submission_filename='clip_inference.jsonl')
 
@@ -164,13 +162,7 @@ def eval_postprocessing_clip(metrics, opt, save_submission_filename):
 
 
 def eval_postprocessing(metrics, preds, opt, save_submission_filename):
-    ret_metrics = [metrics[key]['CLS'] for key in metrics.keys()]
     mr_metrics = [metrics[key]['brief'] for key in metrics.keys()]
-
-    # retrieval metrics are calculated only on foreground windows
-    avg_ret_metrics = {'accuracy': np.array([metric['accuracy'] for metric in ret_metrics]).mean().round(5),
-                       'recall': np.array([metric['recall'] for metric in ret_metrics]).mean().round(5),
-                       'precision': np.array([metric['precision'] for metric in ret_metrics]).mean().round(5)}
 
     # mr metrics return -1, if there are no foreground predictions or no data is in the selected window range (length_ranges)
     avg_mr_metrics = {k: np.array([m[k] if m[k] != -1 else 0 for m in mr_metrics]).mean() for k in mr_metrics[0].keys()}
@@ -178,7 +170,6 @@ def eval_postprocessing(metrics, preds, opt, save_submission_filename):
                                   mr_metrics[0].keys()}
 
     avg_metrics = {'avg_mr_metrics': avg_mr_metrics,
-                   'avg_ret_metrics': avg_ret_metrics,
                    'percentage_no_intersection': percentage_no_intersection}
 
     logger.info("\naverage metrics\n{}".format(pprint.pformat(avg_metrics, indent=4)))

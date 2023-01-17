@@ -6,10 +6,14 @@ import torch
 
 def clip_similarity(src_txt, src_txt_mask, src_vid, src_vid_mask, k=5):
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = 'max_split_size_mb:<4096>'
+    topk_pooling = False
 
     src_txt = src_txt[:, -1, :]
     src_vid = src_vid[..., :-2]
-    vid_embeds_pooled = topk_pooling(src_txt, src_vid, k=k)
+    if topk_pooling:
+        vid_embeds_pooled = topk_pooling(src_txt, src_vid, k=k)
+    else:
+        vid_embeds_pooled = avg_pooling(src_txt, src_vid)
     vid_embeds_pooled = normalize(vid_embeds_pooled)
     sims = sim_matrix(src_txt, vid_embeds_pooled)
 
@@ -19,6 +23,10 @@ def clip_similarity(src_txt, src_txt_mask, src_vid, src_vid_mask, k=5):
 def normalize(embeds):
     embeds = embeds / embeds.norm(dim=-1, keepdim=True)
     return embeds
+
+def avg_pooling(text_embeds, video_embeds):
+    pooled_embeds = video_embeds.sum(dim=1)
+    return pooled_embeds
 
 
 def topk_pooling(text_embeds, video_embeds, k):

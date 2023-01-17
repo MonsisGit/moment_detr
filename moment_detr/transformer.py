@@ -149,6 +149,9 @@ class Transformer(nn.Module):
 
         # memory = memory.permute(1, 2, 0)  # (batch_size, d, L)
         memory = memory.transpose(0, 1)  # (batch_size, L, d)
+        if not 'prob_soft' in locals():
+            prob_soft = None
+
         return hs, memory, prob_soft
 
 

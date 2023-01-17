@@ -10,7 +10,7 @@ train_path=${root}annotations/MAD_train_SMNone_FPS5_CL30_exts_balanced.json
 eval_path=${root}annotations/MAD_val_SMNone_FPS5_CL30_exts_balanced.json
 eval_path_long_nlq=${root}annotations/MAD_test.json
 #set
-eval_results_dir=CLIP_L14_bsz256_lr1e-4_dr1_wl30_fps5_lws4_lloss4_closs4_no_ret_tok_detach_decoder_gating_text_neg.05_copy
+eval_results_dir=CLIP_L14_bsz32_lr1e-4_lrd15_dr1_wl180_smonline_fps5_lws4_lloss4_reduce_plateau
 ckpt_path=${root}momentDETR_results/${eval_results_dir}/model_best.ckpt
 v_feat_dirs=(/nfs/data3/goldhofer/mad_dataset/)
 t_feat_dir=/nfs/data3/goldhofer/mad_dataset/
@@ -24,7 +24,7 @@ t_feat_dim=768
 device=2
 sampling_fps=5
 nms_thd=0.3
-data_ratio_long_nlq=0.1
+data_ratio_long_nlq=1
 data_ratio=0.5
 num_workers=8
 

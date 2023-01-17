@@ -210,23 +210,32 @@ def get_data_by_range(submission, ground_truth, len_range):
 
 def sort_pos_predicted(submission, ground_truth):
 
-    pred_proba = torch.tensor([s['pred_cls'] for s in submission])
-    predicted_foreground_idx = (torch.where(pred_proba > 0.5)[0]).cpu()
-    if predicted_foreground_idx.shape[0] == 0:
-        return [], []
-    _submission = [submission[i] for i in predicted_foreground_idx]
-    # can be any list entry of ground truth, since all are same
-    _ground_truth = [ground_truth[0]]
+    if 'pred_cls' in submission[0].keys():
+        pred_proba = torch.tensor([s['pred_cls'] for s in submission])
+        predicted_foreground_idx = (torch.where(pred_proba > 0.5)[0]).cpu()
+        if predicted_foreground_idx.shape[0] == 0:
+            return [], []
+        _submission = [submission[i] for i in predicted_foreground_idx]
+        # can be any list entry of ground truth, since all are same
+        _ground_truth = [ground_truth[0]]
 
 
     # predicted windows are sorted by confidence
     _submission_vstack = []
+    if not '_submission' in locals():
+        _submission = submission
+        _ground_truth = [ground_truth[0]]
+
     for _s in _submission:
         _submission_vstack.extend(_s['pred_relevant_windows'])
     _submission_sorted = sorted(_submission_vstack, key=lambda x: x[2], reverse=True)
-    _submission = [{'qid': _ground_truth[0]['qid'],
-                    'pred_relevant_windows': _submission_sorted,
-                    'pred_cls': [_s['pred_cls'] for _s in _submission]}]
+    if 'pred_cls' in submission[0].keys():
+        _submission = [{'qid': _ground_truth[0]['qid'],
+                        'pred_relevant_windows': _submission_sorted,
+                        'pred_cls': [_s['pred_cls'] for _s in _submission]}]
+    else:
+        _submission = [{'qid': _ground_truth[0]['qid'],
+                        'pred_relevant_windows': _submission_sorted}]
 
     return _submission, _ground_truth
 
@@ -259,7 +268,9 @@ def eval_moment_retrieval(submission, ground_truth, verbose, is_nms,
                    enumerate(range_names)]
 
     ret_metrics = {}
-    cls_acc, cls_recall, cls_precision, f1 = compute_ret_metrics(submission, ground_truth)
+
+    if 'pred_cls' in submission[0].keys():
+        cls_acc, cls_recall, cls_precision, f1 = compute_ret_metrics(submission, ground_truth)
     _submission, _ground_truth = remove_zero_predictions(submission, ground_truth, verbose)
 
     for l_range, name in zip(length_ranges, range_names):
@@ -313,10 +324,11 @@ def eval_moment_retrieval(submission, ground_truth, verbose, is_nms,
         ret_metrics[name] = {"MR-mAP": iou_thd2average_precision,
                              "MR-RK": iou_thd2recall_at_k
                              }
-    ret_metrics['CLS'] = {'accuracy': round(cls_acc, 2),
-                          'recall': round(cls_recall, 2),
-                          'precision': round(cls_precision, 2),
-                          "f1": round(f1, 2)}
+    if 'pred_cls' in submission[0].keys():
+        ret_metrics['CLS'] = {'accuracy': round(cls_acc, 2),
+                              'recall': round(cls_recall, 2),
+                              'precision': round(cls_precision, 2),
+                              "f1": round(f1, 2)}
 
     return ret_metrics
 

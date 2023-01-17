@@ -131,7 +131,7 @@ def start_inference_long_nlq():
                                      '_submission': _submission}
 
                 else:
-                    top_ks = [9, 11]
+                    top_ks = [1, 3, 5, 7, 9, 11]
                     for k in top_ks:
                         sims = clip_similarity(**_data, k=k)
                         metrics = compute_metrics(sims, _target, k, top_ks, metrics)
