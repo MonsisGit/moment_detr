@@ -20,12 +20,20 @@ logging.basicConfig(format="%(asctime)s.%(msecs)03d:%(levelname)s:%(name)s - %(m
 class LongNlqDataset(Dataset):
     def __init__(self, opt, stride=0.5,
                  window_length=150,
-                 video_fatures_path='CLIP_L14_frames_features_5fps.h5'):
+                 video_fatures_path='CLIP_L14_frames_features_5fps.h5',
+                 mode='test'):
         self.opt = opt
         self.data_ratio = opt.data_ratio_long_nlq
         self.lang_path = os.path.join(opt.t_feat_dir, opt.lang_feat_path)
         self.video_path = os.path.join(opt.v_feat_dirs[0], video_fatures_path)
-        self.anno_path = os.path.join(opt.eval_path_long_nlq)
+
+        if mode == 'test':
+            self.anno_path = os.path.join(opt.eval_path_long_nlq)
+        elif mode == 'train':
+            self.anno_path = os.path.join(opt.train_path)
+        else:
+            self.anno_path = os.path.join(opt.eval_path)
+
         data = self.get_data()
         self.lang_feats = data[0]
         self.video_feats = data[1]
@@ -153,7 +161,6 @@ def start_end_collate(batch):
     batched_meta = [b[1][batch_keys[idx]] for idx, b in enumerate(batch)]
     batched_data = [b[0][batch_keys[idx]] for idx, b in enumerate(batch)]
     batched_windows = [b[2] for b in batch]
-
 
     return batched_meta, batched_data, batch_keys, batched_windows
 

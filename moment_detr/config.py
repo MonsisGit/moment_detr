@@ -182,6 +182,8 @@ class BaseOptions(object):
         parser.add_argument("--decoupled_attn", action="store_true", help="separate attn for video and text")
         parser.add_argument("--neg_window_ratio", type=float, default=0.5, help="ratio of negative windows")
         parser.add_argument("--pretrain_encoder", type=int, default=0, help="number of episodes for encoder pretraining")
+        parser.add_argument("--topk_pooling_frames", type=int, default=7, help="Over how many topk frames is pooled")
+        parser.add_argument("--clip_topk", type=int, default=10, help="nm of topk windows to use for training")
 
         self.parser = parser
 
