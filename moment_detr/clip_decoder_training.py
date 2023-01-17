@@ -7,6 +7,7 @@ import os
 import time
 import json
 from collections import defaultdict
+import random
 
 from moment_detr.config import BaseOptions
 from moment_detr.inference import setup_model, eval_epoch
@@ -15,6 +16,7 @@ from moment_detr.long_nlq_dataset import LongNlqDataset, collate_fn_replace_corr
 from moment_detr.clip_similarity import clip_filter_proposals
 from moment_detr.clip_decoder_inference import set_seed
 from utils.basic_utils import dict_to_markdown,AverageMeter
+from moment_detr.span_utils import span_xx_to_cxw
 
 import torch
 import torch.backends.cudnn as cudnn
@@ -77,8 +79,46 @@ def schedule(opt, epoch_i, lr_scheduler):
 
     return lr_scheduler
 
-def prepare_targets(_target):
-    targets = {}
+def get_saliency_labels(gt_window, foreground, ctx_l, max_n=2):
+    if not foreground:
+        return [-1, -1], [-1, -1]
+
+    gt_st = int(gt_window[0] / 0.2)
+    gt_ed = max(0, min(int(gt_window[1] / 0.2), ctx_l) - 1)
+    if gt_st > gt_ed:
+        gt_st = gt_ed
+
+    if gt_st != gt_ed:
+        pos_clip_indices = random.sample(range(gt_st, gt_ed + 1), k=max_n)
+    else:
+        pos_clip_indices = [gt_st, gt_st]
+
+    neg_pool = list(range(0, gt_st)) + list(range(gt_ed + 1, ctx_l))
+
+    # this sets the saliency score to zero, since no negative window exists
+    if len(neg_pool) <= 0:
+        return [-1, -1], [-1, -1]
+    else:
+        neg_clip_indices = random.sample(neg_pool, k=max_n)
+
+    return pos_clip_indices, neg_clip_indices
+
+
+def get_windows(_target,_data):
+    window = _target['anno']['ext_timestamps']
+    window = torch.Tensor(window) / (_data['src_vid'].shape[1] * 0.2)  # normalized windows in xx
+    window = span_xx_to_cxw(window)
+    windows = [{'spans': window} for _ in range(_data['src_vid'].shape[0])]
+    return windows
+
+
+def prepare_targets(_target, _data):
+    windows = get_windows(_target, _data)
+    labels = []
+    for foreground in _target['is_foreground']:
+        labels.append(get_saliency_labels(_target['anno']['ext_timestamps'], foreground, _data['src_vid'].shape[1]))
+    targets = {'cls_label': _target['is_foreground'],
+               'span_labels': windows}
     #TODO
 
 def train(model, criterion, long_nlq_loader, optimizer, opt, epoch_i, tb_writer, clip_metrics):
@@ -107,7 +147,7 @@ def train(model, criterion, long_nlq_loader, optimizer, opt, epoch_i, tb_writer,
                                                                           windows,
                                                                           i)
 
-            targets = prepare_targets(_target)
+            targets = prepare_targets(_target, _data)
 
             outputs = model(**_data)
             loss_dict = criterion(outputs, targets)
