@@ -258,20 +258,14 @@ class SetCriterion(nn.Module):
         """Classification loss (NLL)
         targets dicts must contain the key "labels" containing a tensor of dim [nb_target_boxes]
         """
-        # filter all background datapoints
-        is_foreground_idx = torch.where(targets['cls_label'] == True)[0]
-
         assert 'pred_logits' in outputs
-        # src_logits = outputs['pred_logits'][is_foreground_idx]         # idx is a tuple of two 1D tensors (batch_idx, src_idx), of the same length == #objects in batch
         src_logits = outputs['pred_logits']
-        # indices = [i for idx,i in enumerate(indices) if idx in is_foreground_idx]
-        # (batch_size, #queries, #classes=2)
+
 
         idx = self._get_src_permutation_idx(indices)
         target_classes = torch.full(src_logits.shape[:2], self.background_label,
                                     dtype=torch.int64, device=src_logits.device)  # (batch_size, #queries)
         target_classes[idx] = self.foreground_label
-        # TODO: use focal loss for class imbalance
         loss_ce = F.cross_entropy(src_logits.transpose(1, 2), target_classes, self.empty_weight, reduction="none")
         losses = {'loss_label': loss_ce.mean()}
 

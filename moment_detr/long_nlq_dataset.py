@@ -10,12 +10,39 @@ from utils.basic_utils import load_jsonl
 from moment_detr.clip_similarity import clip_filter_proposals
 
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, Sampler
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(format="%(asctime)s.%(msecs)03d:%(levelname)s:%(name)s - %(message)s",
                     datefmt="%Y-%m-%d %H:%M:%S",
                     level=logging.INFO)
+
+
+class LongNlqSampler:
+    def __init__(self, batch_size: int, shuffle: bool, len_dataset: int):
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+        self.len_dataset = len_dataset
+        self.start_ind = 0
+
+    def __iter__(self):
+        if self.shuffle:
+            stop = min(self.start_ind + self.batch_size, self.len_dataset - 1)
+            start = max(0, min(self.len_dataset - self.batch_size -1, self.start_ind))
+            indices = torch.randint(start, stop, size=(min(self.batch_size, self.batch_size),))
+
+            if self.start_ind <= self.len_dataset:
+                self.start_ind += self.batch_size
+            else:
+                logger.info(f'LongNlqSampler: Reset start_ind from {self.start_ind} to 0')
+                self.start_ind = 0
+
+        else:
+            raise NotImplementedError
+        return iter(indices)
+
+    def __len__(self):
+        return self.batch_size
 
 
 class LongNlqDataset(Dataset):
@@ -28,7 +55,10 @@ class LongNlqDataset(Dataset):
                  topk_proposals=0):
 
         self.opt = opt
-        self.data_ratio = opt.data_ratio_long_nlq
+        if mode == 'train':
+            self.data_ratio = opt.data_ratio_long_nlq
+        else:
+            self.data_ratio = opt.data_ratio_long_nlq_val_test
         self.lang_path = os.path.join(opt.t_feat_dir, opt.lang_feat_path)
         self.video_path = os.path.join(opt.v_feat_dirs[0], video_fatures_path)
         self.use_clip_prefiltering = use_clip_prefiltering

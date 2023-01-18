@@ -2,92 +2,23 @@ import logging
 import pprint
 import numpy as np
 from tqdm import tqdm
-import functools
-import os
-import time
-import json
+
 from collections import defaultdict
 import random
 
-from moment_detr.config import BaseOptions
-from moment_detr.inference import setup_model, eval_epoch
-from utils.model_utils import count_parameters
-from moment_detr.long_nlq_dataset import LongNlqDataset, collate_fn_replace_corrupted
-from moment_detr.clip_similarity import clip_filter_proposals
-from moment_detr.clip_decoder_inference import set_seed, clip_decoder_inference
+from moment_detr.clip_decoder_inference import clip_decoder_inference
+from moment_detr.setup_clip_training import set_seed, setup_training, data_to_device, postprocess_clip_metrics
 from utils.basic_utils import dict_to_markdown, AverageMeter
 from moment_detr.span_utils import span_xx_to_cxw
 
 import torch
-import torch.backends.cudnn as cudnn
-from torch.utils.data import Dataset, DataLoader
+
 from torch.utils.tensorboard import SummaryWriter
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(format="%(asctime)s.%(msecs)03d:%(levelname)s:%(name)s - %(message)s",
                     datefmt="%Y-%m-%d %H:%M:%S",
                     level=logging.INFO)
-
-
-def setup_training(mode='train'):
-    opt = BaseOptions().parse()
-    cudnn.benchmark = True
-    cudnn.deterministic = False
-
-    model, criterion, optimizer, lr_scheduler = setup_model(opt, losses=['spans', 'labels', 'saliency'])
-    logger.info(f"Model {model} with #Params: {count_parameters(model)}")
-
-    if opt.resume is not None:
-        logger.info(f"Load checkpoint from {opt.resume}")
-        checkpoint = torch.load(opt.resume, map_location="cpu")
-        model.load_state_dict(checkpoint["model"])
-
-    set_seed(opt.seed)
-    if opt.device.type == "cuda":
-        logger.info("CUDA enabled.")
-        model.to(opt.device)
-        criterion.to(opt.device)
-
-    long_nlq_dataset = LongNlqDataset(opt,
-                                      mode=mode,
-                                      use_clip_prefiltering=True,
-                                      topk_frames_for_pooling=7,
-                                      topk_proposals=50
-                                      )
-    collate_fn = functools.partial(collate_fn_replace_corrupted, dataset=long_nlq_dataset)
-    train_loader = DataLoader(
-        long_nlq_dataset,
-        collate_fn=collate_fn,
-        batch_size=4,
-        num_workers=8,
-        shuffle=True,
-        pin_memory=opt.pin_memory
-    )
-
-    long_nlq_dataset_val = LongNlqDataset(opt,
-                                          mode='val',
-                                          use_clip_prefiltering=True,
-                                          topk_frames_for_pooling=7,
-                                          topk_proposals=10
-                                          )
-    collate_fn_val = functools.partial(collate_fn_replace_corrupted, dataset=long_nlq_dataset_val)
-    val_loader = DataLoader(
-        long_nlq_dataset,
-        collate_fn=collate_fn_val,
-        batch_size=4,
-        num_workers=8,
-        shuffle=False,
-        pin_memory=opt.pin_memory
-    )
-
-    return model, criterion, optimizer, lr_scheduler, opt, train_loader, val_loader
-
-
-def data_to_device(data, opt):
-    for i in range(len(data)):
-        for key in data[i].keys():
-            data[i][key] = data[i][key].to(opt.device, non_blocking=True)
-    return data
 
 
 def schedule(opt, epoch_i, lr_scheduler):
@@ -155,17 +86,10 @@ def print_logs(loss_meters, clip_metrics_meter, epoch_i, tb_writer, opt, optimiz
     for k, v in loss_meters.items():
         tb_writer.add_scalar("Train/{}".format(k), v.avg, epoch_i + 1)
 
-    temp = {}
-    for clip_metric in clip_metrics_meter:
-        for key in clip_metric.keys():
-            if key not in temp.keys():
-                temp[key] = []
-            temp[key].append(clip_metric[key])
+    clip_metrics_meter = postprocess_clip_metrics(clip_metrics_meter)
 
-    for k_key in temp.keys():
-        temp[k_key] = np.mean(temp[k_key]).round(4)
-
-    logger.info("\naverage metrics\n{}".format(pprint.pformat(temp, indent=4)))
+    for k, v in clip_metrics_meter.items():
+        tb_writer.add_scalar("Train_retr/{}".format(k), v, epoch_i + 1)
 
 
 def train(model, criterion, long_nlq_loader, optimizer, opt, epoch_i, tb_writer, clip_metrics):
@@ -175,12 +99,14 @@ def train(model, criterion, long_nlq_loader, optimizer, opt, epoch_i, tb_writer,
     criterion.train()
     loss_meters = defaultdict(AverageMeter)
     clip_metrics_meter = []
-    for batch in tqdm(long_nlq_loader):
+    querie_counter = 0
 
+    for batch in tqdm(long_nlq_loader):
         target, data, qid, windows, clip_metrics = batch
         data = data_to_device(data, opt)
 
         for i in range(len(data)):
+            querie_counter += 1
             _target = target[i]
             _data = data[i]
 
@@ -200,6 +126,9 @@ def train(model, criterion, long_nlq_loader, optimizer, opt, epoch_i, tb_writer,
             for k, v in loss_dict.items():
                 loss_meters[k].update(float(v) * weight_dict[k] if k in weight_dict else float(v))
 
+        if querie_counter % 5000 == 0:
+            break
+
         if opt.debug:
             break
 
@@ -212,15 +141,14 @@ def evaluate(model, criterion, opt, data_loader, epoch_i, tb_writer, prev_best_m
                                              criterion=criterion,
                                              opt=opt,
                                              dataloader=data_loader,
-                                             tb_writer=tb_writer)
+                                             tb_writer=tb_writer,
+                                             epoch_i=epoch_i)
 
-        # if opt.scheduler == 'reduce_plateau':
-        #    lr_scheduler.step(eval_loss_meters['loss_overall'].val)
-
-    if avg_metrics['avg_mr_metrics']["brief"]["MR-R5@0.5"] > prev_best_metric:
+    if avg_metrics['avg_mr_metrics']["MR-R10@0.5 (nms)"] > prev_best_metric:
         file_name = opt.ckpt_filepath.replace(".ckpt", "_best.ckpt")
         save_model(model, optimizer, opt, epoch_i, file_name)
-        prev_best_metric = avg_metrics['avg_mr_metrics']["brief"]["MR-R5@0.5"]
+        logger.info(f"Saved best model to {file_name}")
+        prev_best_metric = avg_metrics['avg_mr_metrics']["MR-R5@0.5"]
 
     return prev_best_metric
 
@@ -237,18 +165,19 @@ def save_model(model, optimizer, opt, epoch_i, file_name):
 
 def clip_decoder_training():
     model, criterion, optimizer, lr_scheduler, opt, train_loader, val_loader = setup_training()
-
+    set_seed(opt.seed)
     preds, metrics, clip_metrics = {}, {}, {}
+
     tb_writer = SummaryWriter(opt.tensorboard_log_dir)
     tb_writer.add_text("hyperparameters", dict_to_markdown(vars(opt), max_str_len=None))
+
     prev_best_metric = 0
+    save_interval = 2
 
     for epoch_i in range(opt.n_epoch):
         lr_scheduler = schedule(opt, epoch_i, lr_scheduler)
 
         train(model, criterion, train_loader, optimizer, opt, epoch_i, tb_writer, clip_metrics)
-
-        lr_scheduler.step()
 
         if opt.eval_path is not None and (epoch_i + 1) % 1 == 0:
             prev_best_metric = evaluate(model=model,
@@ -259,10 +188,11 @@ def clip_decoder_training():
                                         tb_writer=tb_writer,
                                         prev_best_metric=prev_best_metric,
                                         optimizer=optimizer)
+            if opt.scheduler == 'reduce_plateau':
+                lr_scheduler.step(prev_best_metric)
         if opt.debug:
             break
 
-        save_interval = 2
         if (epoch_i + 1) % save_interval == 0 or (epoch_i + 1) % opt.lr_drop == 0:  # additional copies
             file_name = opt.ckpt_filepath.replace(".ckpt", f"_e{epoch_i:04d}.ckpt")
             save_model(model, optimizer, opt, epoch_i, file_name)

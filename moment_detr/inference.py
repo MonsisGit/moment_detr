@@ -1,10 +1,9 @@
 import pprint
-from tqdm import tqdm, trange
+from tqdm import tqdm
 import functools
 import os
-from collections import OrderedDict, defaultdict
+from collections import defaultdict
 from utils.basic_utils import AverageMeter
-import pathlib
 
 import torch
 import torch.nn.functional as F
@@ -12,14 +11,12 @@ import torch.backends.cudnn as cudnn
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
-from ignite.handlers.param_scheduler import create_lr_scheduler_with_warmup
-from moment_detr.inference_long_nlq import start_inference_long_nlq
+
 from moment_detr.config import TestOptions
 from moment_detr.model import build_model
 from moment_detr.span_utils import span_cxw_to_xx
-from moment_detr.start_end_dataset import StartEndDataset, start_end_collate, prepare_batch_inputs, \
+from moment_detr.start_end_dataset import StartEndDataset, prepare_batch_inputs, \
     collate_fn_replace_corrupted
-from moment_detr.clip_decoder_inference import clip_decoder_inference
 from moment_detr.postprocessing_moment_detr import PostProcessorDETR
 from standalone_eval.eval import eval_submission
 from utils.basic_utils import save_jsonl, save_json
@@ -231,9 +228,8 @@ def setup_model(opt, losses=['spans', 'labels', 'saliency', 'cls']):
                                                      max_lr=1e-3, min_lr=1e-5, warmup_steps=4, gamma=0.5)
     elif opt.scheduler == 'reduce_plateau':
         lr_scheduler = ReduceLROnPlateau(optimizer,
-                                         mode='min',
-                                         factor=0.5,
-                                         patience=10)
+                                         mode='max',
+                                         patience=30)
     elif opt.scheduler == 'step_lr':
         lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, opt.lr_drop, gamma=0.5)
     else:
@@ -303,6 +299,6 @@ def start_inference():
 
 
 if __name__ == '__main__':
-    # start_inference()
+    start_inference()
     # start_inference_long_nlq()
-    clip_decoder_inference()
+    #clip_decoder_inference()

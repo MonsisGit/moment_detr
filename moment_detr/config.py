@@ -32,6 +32,8 @@ class BaseOptions(object):
                                  "which works by breaking the loops, typically they are not used together.")
         parser.add_argument("--data_ratio_long_nlq", type=float, default=1.0,
                             help="how many test data to use when evaluating on whole movies. 1.0: use all, 0.1: use 10%")
+        parser.add_argument("--data_ratio_long_nlq_val_test", type=float, default=1.0,
+                            help="how many test data to use when evaluating on whole movies. 1.0: use all, 0.1: use 10%")
         parser.add_argument("--results_root", type=str, default="results")
         parser.add_argument("--exp_id", type=str, default=None, help="id of this run, required at training")
         parser.add_argument("--seed", type=int, default=2018, help="random seed")
