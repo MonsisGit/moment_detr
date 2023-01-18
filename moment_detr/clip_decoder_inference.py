@@ -15,6 +15,7 @@ from moment_detr.long_nlq_dataset import LongNlqDataset, collate_fn_replace_corr
 from standalone_eval.eval import eval_submission, sort_pos_predicted, remove_zero_predictions
 from utils.basic_utils import save_json
 from moment_detr.clip_similarity import clip_filter_proposals
+from moment_detr.clip_training import setup_training, data_to_device
 
 import torch
 import torch.backends.cudnn as cudnn
@@ -49,7 +50,11 @@ def sort_spans(i, outputs, windows, prob):
     return ranked_spans
 
 
-def clip_decoder_inference():
+def clip_decoder_inference(opt=None,
+                           model=None,
+                           criterion=None,
+                           dataloader=None,
+                           tb_writer=None):
     opt = TestOptions().parse()
     cudnn.benchmark = True
     cudnn.deterministic = False
@@ -57,10 +62,11 @@ def clip_decoder_inference():
     pooling_topk = 7
     topk = 10
 
-    model, criterion = build_model(opt)
-    logger.info(f"Load checkpoint from {opt.resume}")
-    checkpoint = torch.load(opt.resume, map_location="cpu")
-    model.load_state_dict(checkpoint["model"])
+    if model is None:
+        model, criterion = build_model(opt)
+        logger.info(f"Load checkpoint from {opt.resume}")
+        checkpoint = torch.load(opt.resume, map_location="cpu")
+        model.load_state_dict(checkpoint["model"])
 
     set_seed(opt.seed)
     if opt.device.type == "cuda":
@@ -74,36 +80,14 @@ def clip_decoder_inference():
         model.eval()
         criterion.eval()
 
-        long_nlq_dataset = LongNlqDataset(opt)
-        collate_fn = functools.partial(collate_fn_replace_corrupted, dataset=long_nlq_dataset)
-        long_nlq_loader = DataLoader(
-            long_nlq_dataset,
-            collate_fn=collate_fn,
-            batch_size=2,
-            num_workers=2,
-            shuffle=False,
-            pin_memory=opt.pin_memory
-        )
         preds, metrics, clip_metrics = {}, {}, {}
-        for batch in tqdm(long_nlq_loader):
-            target, data, qid, windows = batch
-
-
-            for i in range(len(data)):
-                for key in data[i].keys():
-                    data[i][key] = data[i][key].to(opt.device, non_blocking=True)
+        for batch in tqdm(dataloader):
+            target, data, qid, windows, clip_metrics = batch
+            data = data_to_device(data, opt)
 
             for i in range(len(data)):
                 _target = target[i]
                 _data = data[i]
-
-                _data, _target, clip_metrics, windows = clip_filter_proposals(_data,
-                                                                              _target,
-                                                                              pooling_topk,
-                                                                              topk,
-                                                                              clip_metrics,
-                                                                              windows,
-                                                                              i)
 
                 outputs = model(**_data)
 
@@ -144,7 +128,8 @@ def clip_decoder_inference():
 
         eval_postprocessing(metrics, preds,
                             opt=opt,
-                            save_submission_filename=save_submission_filename)
+                            save_submission_filename=save_submission_filename,
+                            tb_writer=tb_writer)
         eval_postprocessing_clip(clip_metrics,
                                  opt,
                                  save_submission_filename='clip_inference.jsonl')
@@ -161,7 +146,7 @@ def eval_postprocessing_clip(metrics, opt, save_submission_filename):
     save_json(metrics, save_metrics_path, save_pretty=True, sort_keys=False)
 
 
-def eval_postprocessing(metrics, preds, opt, save_submission_filename):
+def eval_postprocessing(metrics, preds, opt, save_submission_filename,tb_writer=None, epoch_i=None):
     mr_metrics = [metrics[key]['brief'] for key in metrics.keys()]
 
     # mr metrics return -1, if there are no foreground predictions or no data is in the selected window range (length_ranges)
@@ -178,6 +163,18 @@ def eval_postprocessing(metrics, preds, opt, save_submission_filename):
     save_json(avg_metrics, save_metrics_path, save_pretty=True, sort_keys=False)
     save_json(preds, submission_path)
 
+    if tb_writer is not None:
+        for k, v in avg_mr_metrics.items():
+            tb_writer.add_scalar(f"Eval/{k}", float(v), epoch_i + 1)
+
+    return avg_metrics
+
 
 if __name__ == '__main__':
-    start_inference_long_nlq()
+    model, criterion, optimizer, lr_scheduler, opt, data_loader, long_nlq_dataset_val\
+        = setup_training(mode='val')
+
+    clip_decoder_inference(model=model,
+                           criterion=criterion,
+                           opt=opt,
+                           dataloader=data_loader)

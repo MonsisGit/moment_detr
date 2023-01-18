@@ -14,7 +14,7 @@ from moment_detr.inference import setup_model, eval_epoch
 from utils.model_utils import count_parameters
 from moment_detr.long_nlq_dataset import LongNlqDataset, collate_fn_replace_corrupted
 from moment_detr.clip_similarity import clip_filter_proposals
-from moment_detr.clip_decoder_inference import set_seed
+from moment_detr.clip_decoder_inference import set_seed, clip_decoder_inference
 from utils.basic_utils import dict_to_markdown, AverageMeter
 from moment_detr.span_utils import span_xx_to_cxw
 
@@ -29,7 +29,7 @@ logging.basicConfig(format="%(asctime)s.%(msecs)03d:%(levelname)s:%(name)s - %(m
                     level=logging.INFO)
 
 
-def setup_training():
+def setup_training(mode='train'):
     opt = BaseOptions().parse()
     cudnn.benchmark = True
     cudnn.deterministic = False
@@ -49,7 +49,7 @@ def setup_training():
         criterion.to(opt.device)
 
     long_nlq_dataset = LongNlqDataset(opt,
-                                      mode='train',
+                                      mode=mode,
                                       use_clip_prefiltering=True,
                                       topk_frames_for_pooling=7,
                                       topk_proposals=50
@@ -70,7 +70,17 @@ def setup_training():
                                           topk_frames_for_pooling=7,
                                           topk_proposals=10
                                           )
-    return model, criterion, optimizer, lr_scheduler, opt, train_loader, long_nlq_dataset_val
+    collate_fn_val = functools.partial(collate_fn_replace_corrupted, dataset=long_nlq_dataset_val)
+    val_loader = DataLoader(
+        long_nlq_dataset,
+        collate_fn=collate_fn_val,
+        batch_size=4,
+        num_workers=8,
+        shuffle=False,
+        pin_memory=opt.pin_memory
+    )
+
+    return model, criterion, optimizer, lr_scheduler, opt, train_loader, val_loader
 
 
 def data_to_device(data, opt):
@@ -190,56 +200,48 @@ def train(model, criterion, long_nlq_loader, optimizer, opt, epoch_i, tb_writer,
             for k, v in loss_dict.items():
                 loss_meters[k].update(float(v) * weight_dict[k] if k in weight_dict else float(v))
 
+        if opt.debug:
+            break
+
     print_logs(loss_meters, clip_metrics_meter, epoch_i, tb_writer, opt, optimizer)
 
 
-def eval(model, val_dataset, opt, save_submission_filename, epoch_i, criterion, tb_writer, lr_scheduler, optimizer):
+def evaluate(model, criterion, opt, data_loader, epoch_i, tb_writer, prev_best_metric, optimizer):
     with torch.no_grad():
-        metrics_no_nms, metrics_nms, eval_loss_meters, latest_file_paths = \
-            eval_epoch(model, val_dataset, opt, save_submission_filename, epoch_i, criterion, tb_writer)
+        avg_metrics = clip_decoder_inference(model=model,
+                                             criterion=criterion,
+                                             opt=opt,
+                                             dataloader=data_loader,
+                                             tb_writer=tb_writer)
 
-        if opt.scheduler == 'reduce_plateau':
-            lr_scheduler.step(eval_loss_meters['loss_overall'].val)
-    # log
-    to_write = opt.eval_log_txt_formatter.format(
-        time_str=time.strftime("%Y_%m_%d_%H_%M_%S"),
-        epoch=epoch_i,
-        loss_str=" ".join(["{} {:.4f}".format(k, v.avg) for k, v in eval_loss_meters.items()]),
-        eval_metrics_str=json.dumps(metrics_no_nms))
+        # if opt.scheduler == 'reduce_plateau':
+        #    lr_scheduler.step(eval_loss_meters['loss_overall'].val)
 
-    with open(opt.eval_log_filepath, "a") as f:
-        f.write(to_write)
-    logger.info("metrics_no_nms {}".format(pprint.pformat(metrics_no_nms["brief"], indent=4)))
-    if metrics_nms is not None:
-        logger.info("metrics_nms {}".format(pprint.pformat(metrics_nms["brief"], indent=4)))
+    if avg_metrics['avg_mr_metrics']["brief"]["MR-R5@0.5"] > prev_best_metric:
+        file_name = opt.ckpt_filepath.replace(".ckpt", "_best.ckpt")
+        save_model(model, optimizer, opt, epoch_i, file_name)
+        prev_best_metric = avg_metrics['avg_mr_metrics']["brief"]["MR-R5@0.5"]
 
-    metrics = metrics_no_nms
-    for k, v in metrics["brief"].items():
-        tb_writer.add_scalar(f"Eval/{k}", float(v), epoch_i + 1)
+    return prev_best_metric
 
-    # writing no_nms results to tensorboard
-    if metrics_nms is not None:
-        for k, v in metrics_nms["brief"].items():
-            tb_writer.add_scalar(f"Eval/{k}", float(v), epoch_i + 1)
 
-    # save ckpt
+def save_model(model, optimizer, opt, epoch_i, file_name):
     checkpoint = {
         "model": model.state_dict(),
         "optimizer": optimizer.state_dict(),
-        "lr_scheduler": lr_scheduler.state_dict(),
         "epoch": epoch_i,
         "opt": opt
     }
-    torch.save(checkpoint, opt.ckpt_filepath.replace(".ckpt", "_latest.ckpt"))
+    torch.save(checkpoint, file_name)
 
 
 def clip_decoder_training():
-    model, criterion, optimizer, lr_scheduler, opt, train_loader, long_nlq_dataset_val = setup_training()
+    model, criterion, optimizer, lr_scheduler, opt, train_loader, val_loader = setup_training()
 
     preds, metrics, clip_metrics = {}, {}, {}
     tb_writer = SummaryWriter(opt.tensorboard_log_dir)
     tb_writer.add_text("hyperparameters", dict_to_markdown(vars(opt), max_str_len=None))
-    save_submission_filename = "latest_{}_{}_preds.jsonl".format(opt.dset_name, opt.eval_split_name)
+    prev_best_metric = 0
 
     for epoch_i in range(opt.n_epoch):
         lr_scheduler = schedule(opt, epoch_i, lr_scheduler)
@@ -249,21 +251,21 @@ def clip_decoder_training():
         lr_scheduler.step()
 
         if opt.eval_path is not None and (epoch_i + 1) % 1 == 0:
-            eval(model, long_nlq_dataset_val, opt, save_submission_filename, epoch_i, criterion, tb_writer,
-                 lr_scheduler, optimizer)
-
+            prev_best_metric = evaluate(model=model,
+                                        criterion=criterion,
+                                        opt=opt,
+                                        data_loader=val_loader,
+                                        epoch_i=epoch_i,
+                                        tb_writer=tb_writer,
+                                        prev_best_metric=prev_best_metric,
+                                        optimizer=optimizer)
         if opt.debug:
             break
 
-        save_interval = 10
+        save_interval = 2
         if (epoch_i + 1) % save_interval == 0 or (epoch_i + 1) % opt.lr_drop == 0:  # additional copies
-            checkpoint = {
-                "model": model.state_dict(),
-                "optimizer": optimizer.state_dict(),
-                "epoch": epoch_i,
-                "opt": opt
-            }
-            torch.save(checkpoint, opt.ckpt_filepath.replace(".ckpt", f"_e{epoch_i:04d}.ckpt"))
+            file_name = opt.ckpt_filepath.replace(".ckpt", f"_e{epoch_i:04d}.ckpt")
+            save_model(model, optimizer, opt, epoch_i, file_name)
 
     tb_writer.close()
 
