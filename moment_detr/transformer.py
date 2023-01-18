@@ -155,9 +155,6 @@ class Transformer(nn.Module):
         return hs, memory, prob_soft
 
 
-nn.Sequential()
-
-
 class TransformerEncoder(nn.Module):
 
     def __init__(self, encoder_layer, num_layers, norm=None, return_intermediate=False):

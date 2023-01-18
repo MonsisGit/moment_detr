@@ -131,7 +131,6 @@ class MomentDETR(nn.Module):
 
         pos = torch.cat([pos_vid, pos_txt], dim=1)
         # (#layers, bsz, #queries, d), (bsz, L_vid+L_txt, d)
-        # TODO remove cls from decoder part
         hs, memory, prob_soft = self.transformer(src, ~mask, self.query_embed.weight, pos, frames)
         outputs_class = self.class_embed(hs)  # (#layers, batch_size, #queries, #classes)
         outputs_coord = self.span_embed(hs)  # (#layers, bsz, #queries, 2 or max_v_l * 2)
@@ -149,9 +148,11 @@ class MomentDETR(nn.Module):
             vid_mem = memory[:, :src_vid.shape[1]]
 
         out = {'pred_logits': outputs_class[-1],
-               'pred_spans': outputs_coord[-1],
-               # TODO: try hard_prob=mask_c
-               'pred_cls': prob_soft if self.decoder_gating else (outputs_ret if self.use_ret_tok else None)}
+               'pred_spans': outputs_coord[-1]}
+        if self.decoder_gating:
+            out['pred_cls'] = prob_soft
+        elif self.use_ret_tok:
+            out['pred_cls'] = outputs_ret
 
         if self.contrastive_align_loss:  # TODO: Check if we can use it
             proj_queries = F.normalize(self.contrastive_align_projection_query(hs), p=2, dim=-1)
@@ -463,7 +464,7 @@ class LinearLayer(nn.Module):
         return x  # (N, L, D)
 
 
-def build_model(args):
+def build_model(args, losses = ['spans', 'labels', 'saliency', 'cls']):
     # the `num_classes` naming here is somewhat misleading.
     # it indeed corresponds to `max_obj_id + 1`, where max_obj_id
     # is the maximum id for a class in your dataset. For example,
@@ -511,7 +512,6 @@ def build_model(args):
             aux_weight_dict.update({k + f'_{i}': v for k, v in weight_dict.items() if k != "loss_saliency"})
         weight_dict.update(aux_weight_dict)
 
-    losses = ['spans', 'labels', 'saliency', 'cls']
     if args.contrastive_align_loss:
         losses += ["contrastive_align"]
     # TODO anschauen

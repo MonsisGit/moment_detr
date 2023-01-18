@@ -7,6 +7,7 @@ import traceback
 
 from moment_detr.span_utils import temporal_intersection_over_pred
 from utils.basic_utils import load_jsonl
+from moment_detr.clip_similarity import clip_filter_proposals
 
 import torch
 from torch.utils.data import Dataset
@@ -21,11 +22,18 @@ class LongNlqDataset(Dataset):
     def __init__(self, opt, stride=0.5,
                  window_length=150,
                  video_fatures_path='CLIP_L14_frames_features_5fps.h5',
-                 mode='test'):
+                 mode='test',
+                 use_clip_prefiltering=False,
+                 topk_frames_for_pooling=0,
+                 topk_proposals=0):
+
         self.opt = opt
         self.data_ratio = opt.data_ratio_long_nlq
         self.lang_path = os.path.join(opt.t_feat_dir, opt.lang_feat_path)
         self.video_path = os.path.join(opt.v_feat_dirs[0], video_fatures_path)
+        self.use_clip_prefiltering = use_clip_prefiltering
+        self.topk_frames_for_pooling = topk_frames_for_pooling
+        self.topk_proposals = topk_proposals
 
         if mode == 'test':
             self.anno_path = os.path.join(opt.eval_path_long_nlq)
@@ -85,9 +93,20 @@ class LongNlqDataset(Dataset):
                                          model_input=model_input,
                                          anno=anno)
 
+            if self.use_clip_prefiltering:
+                clip_metrics = {}
+                model_input[qid], target[qid], clip_metrics, windows = clip_filter_proposals(model_input[qid],
+                                                                                             target[qid],
+                                                                                             self.topk_frames_for_pooling,
+                                                                                             self.topk_proposals,
+                                                                                             clip_metrics,
+                                                                                             windows,
+                                                                                             -1)
+                return model_input, target, windows, clip_metrics
+
             return model_input, target, windows
         except:
-            traceback.format_stack()
+            traceback.print_exc()
             return None
 
     def get_windows(self, model_input, qid):
@@ -161,6 +180,10 @@ def start_end_collate(batch):
     batched_meta = [b[1][batch_keys[idx]] for idx, b in enumerate(batch)]
     batched_data = [b[0][batch_keys[idx]] for idx, b in enumerate(batch)]
     batched_windows = [b[2] for b in batch]
+
+    if len(batch[0]) > 3:
+        batched_clip_metrics = [b[3] for b in batch]
+        return batched_meta, batched_data, batch_keys, batched_windows, batched_clip_metrics
 
     return batched_meta, batched_data, batch_keys, batched_windows
 

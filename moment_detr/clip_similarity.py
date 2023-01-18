@@ -24,6 +24,7 @@ def normalize(embeds):
     embeds = embeds / embeds.norm(dim=-1, keepdim=True)
     return embeds
 
+
 def avg_pooling(text_embeds, video_embeds):
     pooled_embeds = video_embeds.sum(dim=1)
     return pooled_embeds
@@ -61,11 +62,7 @@ def compute_metrics(sims, ground_truth, k, top_ks, metrics):
     return metrics
 
 
-def clip_filter_proposals(_data, _target, pooling_topk, topk, metrics, windows, i):
-    sims = clip_similarity(**_data, k=pooling_topk)
-    metrics = compute_metrics(sims, _target, k=pooling_topk, top_ks=[pooling_topk], metrics=metrics)
-    topk_inds = torch.topk(sims, topk, dim=0)[1]
-
+def topk_from_data(_data, topk_inds):
     for key in _data.keys():
         if not 'mask' in key:
             topk_inds_gather = topk_inds.unsqueeze(-1).unsqueeze(-1).expand(topk_inds.shape[0],
@@ -76,11 +73,26 @@ def clip_filter_proposals(_data, _target, pooling_topk, topk, metrics, windows, 
             topk_inds_gather = topk_inds.unsqueeze(-1).expand(topk_inds.shape[0],
                                                               _data[key].shape[1])
             _data[key] = torch.gather(_data[key], dim=0, index=topk_inds_gather)
+    return _data
 
+
+def topk_from_target(_target, topk_inds):
     _target['is_foreground'] = _target['is_foreground'][topk_inds.cpu()]
     _target['windows'] = torch.gather(_target['windows'], dim=0,
                                       index=topk_inds.cpu().unsqueeze(-1).expand(topk_inds.shape[0], 2))
+    return _target
 
-    windows[i] = windows[i][topk_inds.cpu(), :]
+
+def clip_filter_proposals(_data, _target, pooling_topk, topk, metrics, windows, i):
+    sims = clip_similarity(**_data, k=pooling_topk)
+    metrics = compute_metrics(sims, _target, k=pooling_topk, top_ks=[pooling_topk], metrics=metrics)
+    topk_inds = torch.topk(sims, topk, dim=0)[1]
+    _data = topk_from_data(_data, topk_inds)
+    _target = topk_from_target(_target, topk_inds)
+
+    if i == -1:
+        windows = windows[topk_inds.cpu(), :]
+    else:
+        windows[i] = windows[i][topk_inds.cpu(), :]
 
     return _data, _target, metrics, windows

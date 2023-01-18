@@ -215,10 +215,10 @@ def eval_epoch(model, eval_dataset, opt, save_submission_filename, epoch_i=None,
     return metrics, metrics_nms, eval_loss_meters, latest_file_paths
 
 
-def setup_model(opt):
+def setup_model(opt, losses=['spans', 'labels', 'saliency', 'cls']):
     """setup model/optimizer/scheduler and load checkpoints when needed"""
     logger.info("setup model/optimizer/scheduler")
-    model, criterion = build_model(opt)
+    model, criterion = build_model(opt, losses)
     if opt.device.type == "cuda":
         logger.info("CUDA enabled.")
         model.to(opt.device)
@@ -303,6 +303,6 @@ def start_inference():
 
 
 if __name__ == '__main__':
-    #start_inference()
-    #start_inference_long_nlq()
+    # start_inference()
+    # start_inference_long_nlq()
     clip_decoder_inference()
