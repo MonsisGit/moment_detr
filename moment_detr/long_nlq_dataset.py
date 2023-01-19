@@ -28,7 +28,7 @@ class LongNlqSampler:
     def __iter__(self):
         if self.shuffle:
             stop = min(self.start_ind + self.batch_size, self.len_dataset - 1)
-            start = max(0, min(self.len_dataset - self.batch_size -1, self.start_ind))
+            start = max(0, min(self.len_dataset - self.batch_size - 1, self.start_ind))
             indices = torch.randint(start, stop, size=(min(self.batch_size, self.batch_size),))
 
             if self.start_ind <= self.len_dataset:
@@ -125,13 +125,20 @@ class LongNlqDataset(Dataset):
 
             if self.use_clip_prefiltering:
                 clip_metrics = {}
-                model_input[qid], target[qid], clip_metrics, windows = clip_filter_proposals(model_input[qid],
-                                                                                             target[qid],
-                                                                                             self.topk_frames_for_pooling,
-                                                                                             self.topk_proposals,
-                                                                                             clip_metrics,
-                                                                                             windows,
-                                                                                             -1)
+                model_input[qid], target[qid], clip_metrics, windows, sims = clip_filter_proposals(model_input[qid],
+                                                                                                   target[qid],
+                                                                                                   self.topk_frames_for_pooling,
+                                                                                                   self.topk_proposals,
+                                                                                                   clip_metrics,
+                                                                                                   windows,
+                                                                                                   -1)
+
+                if self.opt.concat_sims:
+                    input_shape = model_input[qid]['src_vid'].shape
+                    sims = sims.unsqueeze(-1).unsqueeze(-1).expand(input_shape[0],input_shape[1],1)
+                    model_input[qid]['src_vid'] = torch.cat([model_input[qid]['src_vid'], sims], dim=-1)
+
+
                 return model_input, target, windows, clip_metrics
 
             return model_input, target, windows

@@ -24,7 +24,7 @@ class MomentDETR(nn.Module):
                  num_queries, input_dropout, aux_loss=False,
                  contrastive_align_loss=False, contrastive_hdim=64,
                  max_v_l=75, span_loss_type="l1", use_txt_pos=False, n_input_proj=2, use_ret_tok=False,
-                 decoder_gating=False):
+                 decoder_gating=False, use_clip_sim=False):
         """ Initializes the model.
         Parameters:
             transformer: torch module of the transformer architecture. See transformer.py
@@ -45,6 +45,7 @@ class MomentDETR(nn.Module):
             # background_thd: float, intersection over prediction <= background_thd: labeled background
         """
         super().__init__()
+        self.use_clip_sim = use_clip_sim
         self.num_queries = num_queries
         self.transformer = transformer
         self.position_embed = position_embed
@@ -76,6 +77,8 @@ class MomentDETR(nn.Module):
                                                  LinearLayer(hidden_dim, hidden_dim, layer_norm=True,
                                                              dropout=input_dropout, relu=relu_args[2])
                                              ][:n_input_proj])
+        if self.use_clip_sim:
+            vid_dim += 1
         self.input_vid_proj = nn.Sequential(*[
                                                  LinearLayer(vid_dim, hidden_dim, layer_norm=True,
                                                              dropout=input_dropout, relu=relu_args[0]),
@@ -260,7 +263,6 @@ class SetCriterion(nn.Module):
         """
         assert 'pred_logits' in outputs
         src_logits = outputs['pred_logits']
-
 
         idx = self._get_src_permutation_idx(indices)
         target_classes = torch.full(src_logits.shape[:2], self.background_label,
@@ -458,7 +460,7 @@ class LinearLayer(nn.Module):
         return x  # (N, L, D)
 
 
-def build_model(args, losses = ['spans', 'labels', 'saliency', 'cls']):
+def build_model(args, losses=['spans', 'labels', 'saliency', 'cls']):
     # the `num_classes` naming here is somewhat misleading.
     # it indeed corresponds to `max_obj_id + 1`, where max_obj_id
     # is the maximum id for a class in your dataset. For example,
@@ -487,7 +489,8 @@ def build_model(args, losses = ['spans', 'labels', 'saliency', 'cls']):
         use_txt_pos=args.use_txt_pos,
         n_input_proj=args.n_input_proj,
         use_ret_tok=args.ret_tok,
-        decoder_gating=args.decoder_gating
+        decoder_gating=args.decoder_gating,
+        use_clip_sim=args.concat_sims,
     )
 
     matcher = build_matcher(args)

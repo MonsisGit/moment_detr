@@ -126,7 +126,7 @@ def train(model, criterion, long_nlq_loader, optimizer, opt, epoch_i, tb_writer,
             for k, v in loss_dict.items():
                 loss_meters[k].update(float(v) * weight_dict[k] if k in weight_dict else float(v))
 
-        if querie_counter % 5000 == 0:
+        if querie_counter % 40000 == 0:
             break
 
         if opt.debug:
@@ -148,7 +148,7 @@ def evaluate(model, criterion, opt, data_loader, epoch_i, tb_writer, prev_best_m
         file_name = opt.ckpt_filepath.replace(".ckpt", "_best.ckpt")
         save_model(model, optimizer, opt, epoch_i, file_name)
         logger.info(f"Saved best model to {file_name}")
-        prev_best_metric = avg_metrics['avg_mr_metrics']["MR-R5@0.5"]
+        prev_best_metric = avg_metrics['avg_mr_metrics']["MR-R10@0.5 (nms)"]
 
     return prev_best_metric
 
