@@ -46,8 +46,10 @@ def postprocess_clip_metrics(clip_metrics_meter):
     return temp
 
 
-def setup_training(mode='train'):
-    opt = BaseOptions().parse()
+def setup_training(mode='train', opt=None, batch_size=4, num_workers=8,
+                   use_clip_prefiltering=True):
+    if opt is None:
+        opt = BaseOptions().parse()
     cudnn.benchmark = True
     cudnn.deterministic = False
     if opt.cuda_visible_devices is not None:
@@ -57,20 +59,16 @@ def setup_training(mode='train'):
     logger.info(f"Model {model} with #Params: {count_parameters(model)}")
     logger.info(f'Current GPU: {torch.cuda.current_device()} ({torch.cuda.get_device_name(torch.cuda.current_device())})')
 
-    if opt.resume is not None:
-        logger.info(f"Load checkpoint from {opt.resume}")
-        checkpoint = torch.load(opt.resume, map_location="cpu")
-        model.load_state_dict(checkpoint["model"])
+    #if opt.resume is not None:
+    #    logger.info(f"Load checkpoint from {opt.resume}")
+    #    checkpoint = torch.load(opt.resume, map_location="cpu")
+    #    model.load_state_dict(checkpoint["model"])
 
     set_seed(opt.seed)
-    if opt.device.type == "cuda":
-        logger.info("CUDA enabled.")
-        model.to(opt.device)
-        criterion.to(opt.device)
 
     long_nlq_dataset = LongNlqDataset(opt,
                                       mode=mode,
-                                      use_clip_prefiltering=True,
+                                      use_clip_prefiltering=use_clip_prefiltering,
                                       topk_frames_for_pooling=opt.topk_pooling_frames,
                                       topk_proposals=opt.clip_topk
                                       )
@@ -82,8 +80,8 @@ def setup_training(mode='train'):
     train_loader = DataLoader(
         long_nlq_dataset,
         collate_fn=collate_fn,
-        batch_size=4,
-        num_workers=8,
+        batch_size=batch_size,
+        num_workers=num_workers,
         shuffle=True,
         pin_memory=opt.pin_memory,
     )

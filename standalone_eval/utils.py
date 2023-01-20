@@ -166,6 +166,7 @@ def compute_average_precision_detection(ground_truth,
     return ap
 
 
+#why
 def get_ap(y_true, y_predict, interpolate=True, point_11=False):
     """
     Average precision in different formats: (non-) interpolated and/or 11-point approximated

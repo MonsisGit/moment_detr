@@ -21,7 +21,7 @@ class BaseOptions(object):
     def initialize(self):
         self.initialized = True
         parser = argparse.ArgumentParser()
-        parser.add_argument("--dset_name", type=str, choices=["hl"])
+        parser.add_argument("--dset_name", default="hl", type=str, choices=["hl"])
         parser.add_argument("--eval_split_name", type=str, default="val",
                             help="should match keys in video_duration_idx_path, must set for VCMR")
         parser.add_argument("--debug", action="store_true",
@@ -35,7 +35,7 @@ class BaseOptions(object):
         parser.add_argument("--data_ratio_long_nlq_val_test", type=float, default=1.0,
                             help="how many test data to use when evaluating on whole movies. 1.0: use all, 0.1: use 10%")
         parser.add_argument("--results_root", type=str, default="results")
-        parser.add_argument("--exp_id", type=str, default=None, help="id of this run, required at training")
+        parser.add_argument("--exp_id", type=str, default="0", help="id of this run, required at training")
         parser.add_argument("--seed", type=int, default=2018, help="random seed")
         parser.add_argument("--device", type=int, default=0, help="0 cuda, -1 cpu")
         parser.add_argument("--num_workers", type=int, default=4,
@@ -69,19 +69,23 @@ class BaseOptions(object):
         parser.add_argument("--clip_length", type=float, default=2)
         parser.add_argument("--max_windows", type=int, default=5)
 
-        parser.add_argument("--train_path", type=str, default=None)
+        parser.add_argument("--train_path", type=str,
+                            default='/nfs/data3/goldhofer/mad_dataset/annotations/MAD_train.json')
         parser.add_argument("--eval_path_long_nlq", type=str,
                             default='/nfs/data3/goldhofer/mad_dataset/annotations/MAD_test.json')
-        parser.add_argument("--eval_path", type=str, default=None,
+        parser.add_argument("--eval_path", type=str,
+                            default='/nfs/data3/goldhofer/mad_dataset/annotations/MAD_val.json',
                             help="Evaluating during training, for Dev set. If None, will only do training, ")
         parser.add_argument("--no_norm_vfeat", action="store_true", help="Do not do normalize video feat")
         parser.add_argument("--no_norm_tfeat", action="store_true", help="Do not do normalize text feat")
         parser.add_argument("--v_feat_dirs", type=str, nargs="+",
+                            default='/nfs/data3/goldhofer/mad_dataset/',
                             help="video feature dirs. If more than one, will concat their features. "
                                  "Note that sub ctx features are also accepted here.")
-        parser.add_argument("--t_feat_dir", type=str, help="text/query feature dir")
-        parser.add_argument("--v_feat_dim", type=int, help="video feature dim")
-        parser.add_argument("--t_feat_dim", type=int, help="text/query feature dim")
+        parser.add_argument("--t_feat_dir", type=str, help="text/query feature dir",
+                            default='/nfs/data3/goldhofer/mad_dataset/')
+        parser.add_argument("--v_feat_dim", type=int, help="video feature dim", default=768)
+        parser.add_argument("--t_feat_dim", type=int, help="text/query feature dim", default=768)
         parser.add_argument("--ctx_mode", type=str, default="video_tef")
 
         # Model config
@@ -155,7 +159,7 @@ class BaseOptions(object):
         parser.add_argument("--saved_option_filename", type=str, default="opt_mad.json")
         parser.add_argument("--cuda_visible_devices", nargs="*", type=int, default=None,
                             help="list of cuda visible devices")
-        parser.add_argument("--eval_results_dir", type=str, default=None,
+        parser.add_argument("--eval_results_dir", type=str, default='results',
                             help="dir to save results, if not set, fall back to training results_dir")
         parser.add_argument("--sampling_mode", type=str, default="offline",
                             help="use offline or online sampling", choices=['online'])
@@ -180,13 +184,16 @@ class BaseOptions(object):
         parser.add_argument("--detach_decoder_gating", action="store_true", help="stop gradient gate the decoder")
         parser.add_argument("--decoder_gating_feature", type=str, default="all",
                             choices=["all", "video", "text", "ret_tok"])
-        parser.add_argument("--video_only_decoder", action="store_true", help="video as keys, queries from text pooling")
+        parser.add_argument("--video_only_decoder", action="store_true",
+                            help="video as keys, queries from text pooling")
         parser.add_argument("--decoupled_attn", action="store_true", help="separate attn for video and text")
         parser.add_argument("--neg_window_ratio", type=float, default=0.5, help="ratio of negative windows")
-        parser.add_argument("--pretrain_encoder", type=int, default=0, help="number of episodes for encoder pretraining")
+        parser.add_argument("--pretrain_encoder", type=int, default=0,
+                            help="number of episodes for encoder pretraining")
         parser.add_argument("--topk_pooling_frames", type=int, default=7, help="Over how many topk frames is pooled")
         parser.add_argument("--clip_topk", type=int, default=10, help="nm of topk windows to use for training")
         parser.add_argument("--concat_sims", action="store_true", help="use similarities from CLIP as input features")
+        parser.add_argument("-f", "--fff", help="a dummy argument to fool ipython", default="1")
 
         self.parser = parser
 
