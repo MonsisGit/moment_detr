@@ -1,6 +1,6 @@
 import logging
 import pprint
-import numpy as np
+import traceback
 from tqdm import tqdm
 
 from collections import defaultdict
@@ -180,16 +180,20 @@ def clip_decoder_training():
         train(model, criterion, train_loader, optimizer, opt, epoch_i, tb_writer, clip_metrics)
 
         if opt.eval_path is not None and (epoch_i + 1) % 1 == 0:
-            prev_best_metric = evaluate(model=model,
-                                        criterion=criterion,
-                                        opt=opt,
-                                        data_loader=val_loader,
-                                        epoch_i=epoch_i,
-                                        tb_writer=tb_writer,
-                                        prev_best_metric=prev_best_metric,
-                                        optimizer=optimizer)
-            if opt.scheduler == 'reduce_plateau':
-                lr_scheduler.step(prev_best_metric)
+            try:
+                prev_best_metric = evaluate(model=model,
+                                            criterion=criterion,
+                                            opt=opt,
+                                            data_loader=val_loader,
+                                            epoch_i=epoch_i,
+                                            tb_writer=tb_writer,
+                                            prev_best_metric=prev_best_metric,
+                                            optimizer=optimizer)
+                if opt.scheduler == 'reduce_plateau':
+                    lr_scheduler.step(prev_best_metric)
+            except:
+                traceback.print_exc()
+
         if opt.debug:
             break
 

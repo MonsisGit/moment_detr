@@ -19,7 +19,7 @@ eval_split_name=val
 v_feat_dim=768
 t_feat_dim=768
 bsz=256
-cuda_visible_devices=0
+cuda_visible_devices=3
 data_ratio=1
 data_ratio_long_nlq=1
 data_ratio_long_nlq_val_test=0.05
@@ -48,7 +48,7 @@ window_length=30
 sampling_mode=online
 sampling_fps=5
 eval_results_dir=${lang_feat_path:0:8}_bsz${bsz}_lr${lr}_wCLIP_topk${clip_topk}_sSims
-#resume=/nfs/data3/goldhofer/mad_dataset/momentDETR_results_wCLIP/CLIP_L14_bsz256_lr1e-4_wCLIP_topk100/model_e0009.ckpt
+#resume=/nfs/data3/goldhofer/mad_dataset/momentDETR_results_wCLIP/CLIP_L14_bsz256_lr1e-4_wCLIP_topk100/model_e0015.ckpt
 
 if [ ${window_length} -gt ${max_v_l} ]; then
     echo "Window length larger than max_v_l"
