@@ -224,7 +224,7 @@ class BaseOptions(object):
                 if arg not in ["results_root", "num_workers", "nms_thd", "debug",  # "max_before_nms", "max_after_nms"
                                "max_pred_l", "min_pred_l", "pretrain_encoder",
                                "resume", "resume_all", "no_sort_results"]:
-                    setattr(opt, arg, saved_options[arg])
+                    setattr(opt, arguse_txt_pos, saved_options[arg])
             # opt.no_core_driver = True
             # if opt.eval_results_dir is not None:
             #    opt.results_dir = opt.eval_results_dir
