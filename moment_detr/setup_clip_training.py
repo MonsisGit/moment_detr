@@ -47,7 +47,7 @@ def postprocess_clip_metrics(clip_metrics_meter):
 
 
 def setup_training(mode='train', opt=None, batch_size=4, num_workers=8,
-                   use_clip_prefiltering=True):
+                   use_clip_prefiltering=True, training_shuffle=True):
     if opt is None:
         opt = BaseOptions().parse()
     cudnn.benchmark = True
@@ -82,7 +82,7 @@ def setup_training(mode='train', opt=None, batch_size=4, num_workers=8,
         collate_fn=collate_fn,
         batch_size=batch_size,
         num_workers=num_workers,
-        shuffle=True,
+        shuffle=training_shuffle,
         pin_memory=opt.pin_memory,
     )
 
